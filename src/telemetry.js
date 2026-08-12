@@ -14,7 +14,7 @@
  */
 
 // ── Environment & Config ──────────────────────────────────────────────────────
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_STUDY_API_ENDPOINT || ''
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_STUDY_API_ENDPOINT || '/api/telemetry'
 const APPLICATION_VERSION = '0.2.0'
 const STUDY_VERSION = '4.1.0' // Study Protocol v4.1
 
@@ -229,7 +229,7 @@ class TelemetryService {
     if (!API_BASE_URL) return
 
     try {
-      const response = await fetch(`${API_BASE_URL}/events`, {
+      const response = await fetch(API_BASE_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(eventEnvelope),
@@ -238,8 +238,6 @@ class TelemetryService {
 
       if (response.ok) {
         this._removeFromQueue(eventEnvelope.eventId)
-      } else {
-        this._queueEvent(eventEnvelope)
       }
     } catch {
       // Network failure — envelope remains queued safely in LocalStorage
@@ -268,7 +266,7 @@ class TelemetryService {
       }
 
       // Send pending events in batch
-      const response = await fetch(`${API_BASE_URL}/events/batch`, {
+      const response = await fetch(API_BASE_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(queue),
