@@ -11,7 +11,8 @@
   "dependencies": {
     "vite": "^7.1.0",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "mongoose": "^8.9.0"
   },
   "devDependencies": {}
 }
