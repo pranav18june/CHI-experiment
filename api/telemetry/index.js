@@ -1,6 +1,6 @@
-import { connectToDatabase } from './lib/mongodb.js'
-import TelemetryEvent from './models/TelemetryEvent.js'
-import TrialResult from './models/TrialResult.js'
+import { connectToDatabase } from '../lib/mongodb.js'
+import TelemetryEvent from '../models/TelemetryEvent.js'
+import TrialResult from '../models/TrialResult.js'
 
 /**
  * Helper to compute Weight of Advice (WoA).

@@ -4,7 +4,8 @@ import { formatCurrency } from '../../utils/formatters.js'
 // TODO_PRACTICE_FEEDBACK_TEXT: Educational feedback copy for practice mode.
 export function PracticeFeedback({ response, optimal, onNext, isLast }) {
   const difference = Math.abs(response - optimal)
-  const side       = response >= optimal ? 'over-ordering' : 'under-ordering'
+  const isExact = difference === 0
+  const side = response > optimal ? 'over-ordering' : 'under-ordering'
 
   return (
     <section className="feedback-card">
@@ -13,14 +14,14 @@ export function PracticeFeedback({ response, optimal, onNext, isLast }) {
       <div className="feedback-values">
         <div><span>Cost-optimal value</span><strong>{formatCurrency(optimal)}</strong></div>
         <i />
-        <div><span>Your final value</span><strong>{formatCurrency(response)}</strong></div>
+        <div><span>Your entered value</span><strong>{formatCurrency(response)}</strong></div>
       </div>
       <p className="feedback-copy">
-        The cost-optimal value for this decision was {formatCurrency(optimal)}. Your final value was {formatCurrency(response)} — a difference of {formatCurrency(difference)}, on the <strong>{side}</strong> side.
+        The cost-optimal value for this decision was {formatCurrency(optimal)}. Your entered value was {formatCurrency(response)} — {isExact ? 'an exact match!' : `a difference of ${formatCurrency(difference)}${side ? `, on the ${side} side.` : '.'}`}
       </p>
       <div className="feedback-note">
         <span>ⓘ</span>
-        <p>Feedback is only shown during practice rounds. Scored trials do not reveal the cost-optimal value.</p>
+        <p>This feedback reports distance from optimal, not a verdict on the AI. Feedback is only shown during practice rounds.</p>
       </div>
       <button className="button primary" type="button" onClick={onNext}>
         {isLast ? 'Begin scored trials' : 'Next practice trial'} <span>→</span>

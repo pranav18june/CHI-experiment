@@ -1,11 +1,13 @@
 /**
  * Practice scenarios — PRAC-1 (Safety Stock) & PRAC-2 (Newsvendor)
  *
- * Practice trials use the identical scenario schema as scored trials.
- * Practice trials show cost-optimal feedback after Step 4, whereas scored trials do not.
+ * Configured exactly according to protocol specification:
+ *   PRAC-1: "Product Category X" (Safety Stock-style, AI correct = $15,000)
+ *   PRAC-2: "Product Category Y" (Newsvendor-style, AI incorrect = $60,000 vs optimal $86,000)
  */
 
 export const practiceScenarios = [
+  // ── Practice Trial 1 — Product Category X (Safety Stock-style, AI correct) ──
   {
     id: 'PRAC-1',
     scenarioType: 'safetyStock',
@@ -13,23 +15,23 @@ export const practiceScenarios = [
     difficulty: 'easy',
 
     shortLabel:    'Safety stock buffer',
-    title:         'Practice Store A',
-    category:      'Practice Category',
-    description:   'Orientation practice scenario',
+    title:         'Product Category X',
+    category:      'Illustrative category',
+    description:   'Low week-to-week volatility',
     decisionLabel: 'Safety stock level',
     decisionPrompt: {
-      initial: 'Based on the historical information above, what safety stock level (in dollars of inventory value) would you set for this product category?',
-      final:   'Having now seen the AI recommendation, what safety stock level (in dollars of inventory value) would you set for this product category?',
+      initial: 'Before seeing any AI input — based on this chart alone, what safety stock level (in dollars) would you set for this product category?',
+      final:   "Now that you've seen the AI's recommendation, what is your final answer? You may keep your original estimate, adopt the AI's number, or choose anything in between.",
     },
 
     historicalStatistic: {
-      label: 'Average weekly demand variability',
-      value: '$15,000',
+      label: 'Weekly demand mean (std dev)',
+      value: '$50,000 ($6,450)',
     },
 
     chart: {
-      label: 'Weekly sales history',
-      hint: 'Practice historical chart data will appear here.',
+      label: 'Weekly sales history for Product Category X',
+      hint: 'Constructed weekly sales pattern (3 years illustrative weekly history).',
       data: {
         historicalSeries: 'TODO_CHART_DATA_PRAC1',
         movingAverage:    'TODO_CHART_DATA_PRAC1',
@@ -39,30 +41,34 @@ export const practiceScenarios = [
     },
 
     drivers: [
-      { name: 'Promotional markdown present', weight: '+0.25' },
-      { name: 'Temperature',                 weight: '−0.20' },
+      { name: 'Holiday-week indicator', weight: '+0.10' },
+      { name: 'Temperature',            weight: '−0.15' },
     ],
 
     recommendation: {
-      correct:   25000,
-      incorrect: 32000,
-      active:    32000,
-      optimal:   25000,
+      correct:   15000,
+      incorrect: 15000,
+      active:    15000,  // AI recommendation shown: $15,000 (correct)
+      optimal:   15000,  // Cost-optimal ground truth: $15,000
     },
 
     explanations: {
       c0: null,
-      c1: 'TODO_C1_EXPLANATION_PRAC1',
-      c2: 'This practice scenario demonstrates how demand fluctuations influence safety stock recommendations.',
-      c3: 'This practice recommendation assumes higher demand volatility than the historical series indicates.',
+      c1: 'Numerical explanation: Review the weekly sales chart and driver weights above. The AI recommendation is $15,000.',
+      c2: 'This illustrative category shows fairly steady demand from week to week, with a modest uptick during colder weeks. Because historical volatility here is relatively low, the AI recommends a modest safety stock buffer of $15,000 to cover typical week-to-week swings without tying up excess capital.',
+      c3: 'If weekly demand volatility for this category were about 30% higher than the illustrative pattern (near $8,400 instead of the observed $6,450), a buffer of $19,500 would be justified. The illustrative data does not currently support that higher volatility estimate.',
     },
 
     metadata: {
-      isPracticePlaceholder: true,
+      demandMean: 50000,
+      demandStdDev: 6450,
+      leadTimeWeeks: 2,
+      zScore: 1.645,
     },
     futureExpansion: {},
   },
 
+  // ── Practice Trial 2 — Product Category Y (Newsvendor-style, AI incorrect) ──
   {
     id: 'PRAC-2',
     scenarioType: 'newsvendor',
@@ -70,23 +76,23 @@ export const practiceScenarios = [
     difficulty: 'easy',
 
     shortLabel:    'Newsvendor',
-    title:         'Practice Store B',
-    category:      'Practice Category',
-    description:   'Orientation practice scenario',
+    title:         'Product Category Y',
+    category:      'Illustrative category',
+    description:   'High variance peak-week demand',
     decisionLabel: 'Order amount',
     decisionPrompt: {
-      initial: 'Based on the historical information above, how much would you order for the upcoming peak week (in dollars of inventory value)?',
-      final:   'Having now seen the AI recommendation, how much would you order for the upcoming peak week (in dollars of inventory value)?',
+      initial: 'Before seeing any AI input — how much would you order for the upcoming peak week (in dollars)?',
+      final:   "Now that you've seen the AI's recommendation, what is your final answer? You may keep your original estimate, adopt the AI's number, or choose anything in between.",
     },
 
     historicalStatistic: {
-      label: 'Average historical peak-week demand',
-      value: '$180,000',
+      label: 'Holiday-week demand mean (std dev)',
+      value: '$60,000 ($67,500)',
     },
 
     chart: {
-      label: 'Historical peak-week sales',
-      hint: 'Practice historical peak-week sales will appear here.',
+      label: 'Holiday-week sales history for Product Category Y',
+      hint: 'Constructed holiday-week sales pattern (typical week ~$40,000, holiday peak mean $60,000).',
       data: {
         historicalSeries: 'TODO_CHART_DATA_PRAC2',
         movingAverage:    'TODO_CHART_DATA_PRAC2',
@@ -97,25 +103,28 @@ export const practiceScenarios = [
 
     drivers: [
       { name: 'Holiday-week indicator', weight: '+0.40' },
-      { name: 'Fuel price',             weight: '−0.15' },
+      { name: 'Temperature',            weight: '−0.20' },
     ],
 
     recommendation: {
-      correct:   200000,
-      incorrect: 150000,
-      active:    150000,
-      optimal:   200000,
+      correct:   86000,  // Cost-optimal Q* = $60,000 + 0.385 × $67,500 = $86,000 (critical ratio 0.65)
+      incorrect: 60000,  // AI recommendation shown: $60,000 (incorrect — ~30% below optimal)
+      active:    60000,
+      optimal:   86000,
     },
 
     explanations: {
       c0: null,
-      c1: 'TODO_C1_EXPLANATION_PRAC2',
-      c2: 'This practice scenario demonstrates peak-week order planning.',
-      c3: 'This practice recommendation assumes peak demand lower than historical peak observations.',
+      c1: 'Numerical explanation: Review the holiday-week sales chart and driver weights above. The AI recommendation is $60,000.',
+      c2: 'While this illustrative category does see a holiday increase, the AI treats the upcoming peak as more modest than the pattern suggests, recommending a comparatively conservative order of $60,000 for the peak week.',
+      c3: 'This recommendation assumes expected peak-week demand of about $34,000. The illustrative pattern for this category instead shows an average peak-week demand closer to $60,000 — substantially higher. If the upcoming peak matches that pattern, a larger order of roughly $86,000 would be needed.',
     },
 
     metadata: {
-      isPracticePlaceholder: true,
+      typicalWeekMean: 40000,
+      holidayWeekMean: 60000,
+      holidayWeekStdDev: 67500,
+      criticalRatio: 0.65,
     },
     futureExpansion: {},
   },
