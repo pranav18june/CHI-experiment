@@ -2,6 +2,9 @@ import { connectToDatabase } from '../lib/mongodb.js'
 import TelemetryEvent from '../models/TelemetryEvent.js'
 import TrialResult from '../models/TrialResult.js'
 
+// Import backend scenario lookup for server-side advice resolution
+import { getScenarioById, getExplanation } from '../../src/scenarios/index.js'
+
 /**
  * Helper to compute Weight of Advice (WoA).
  * WoA = (Final - Initial) / (Advice - Initial)
@@ -24,6 +27,32 @@ export default async function handler(req, res) {
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end()
+  }
+
+  // ── SERVER-SIDE ADVICE RESOLUTION (SECURE ANCHORING FIX) ────────────────────
+  // When req.method === 'GET', resolve AI advice ONLY AFTER Step 1 submission
+  if (req.method === 'GET') {
+    const { trialId, condition } = req.query
+    if (!trialId) {
+      return res.status(400).json({ error: 'Missing trialId parameter' })
+    }
+
+    const scenario = getScenarioById(trialId)
+    if (!scenario) {
+      return res.status(404).json({ error: 'Scenario not found' })
+    }
+
+    const recAmount = typeof scenario.recommendation === 'object'
+      ? (scenario.recommendation.active ?? scenario.recommendation.correct)
+      : scenario.recommendation
+
+    const explanation = getExplanation(scenario, condition || 'c0')
+
+    return res.status(200).json({
+      trialId,
+      recommendation: recAmount,
+      explanation: condition === 'c0' ? null : explanation,
+    })
   }
 
   if (req.method !== 'POST') {

@@ -36,6 +36,8 @@ function App() {
     isLastTrial,
     progress,
     explanation,
+    fetchedAdvice,
+    isFetchingAdvice,
     // Step state
     initialEstimate, setInitialEstimate,
     initialConfidence, setInitialConfidence,
@@ -104,6 +106,8 @@ function App() {
           trialStep={trialStep}
           condition={condition}
           explanation={explanation}
+          fetchedAdvice={fetchedAdvice}
+          isFetchingAdvice={isFetchingAdvice}
           // Step 1
           initialEstimate={initialEstimate}
           onInitialEstimate={setInitialEstimate}

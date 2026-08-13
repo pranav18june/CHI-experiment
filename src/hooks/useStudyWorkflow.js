@@ -2,9 +2,14 @@ import { useState, useMemo, useEffect } from 'react'
 import { trials, practiceTrials, studyTypes } from '../studyData.js'
 import telemetry, { EventType } from '../telemetry.js'
 import CONFIG from '../config/index.js'
+import { normalizeNumericInput } from '../services/validationService.js'
+
+const AUTOSAVE_STORAGE_KEY = 'study-session-autosave-v1'
+const MAX_RESUME_WINDOW_MS = 24 * 60 * 60 * 1000 // 24-hour single-session resume window
 
 /**
- * Custom hook encapsulating the study state machine and workflow progression.
+ * Custom hook encapsulating the study state machine, workflow progression,
+ * secure fetch-on-demand AI advice resolution, and session guardrails.
  */
 export function useStudyWorkflow() {
   const [participantId] = useState(() => telemetry.sessionMetadata.participantId || telemetry._loadOrInitSession().participantId)
@@ -22,13 +27,18 @@ export function useStudyWorkflow() {
   const [trialIndex, setTrialIndex] = useState(0)
   const [trialStep, setTrialStep] = useState(1)
 
-  // Step data collection
+  // Step data collection — NEVER pre-filled (no default values, no initial anchors)
   const [initialEstimate, setInitialEstimate] = useState('')
   const [initialConfidence, setInitialConfidence] = useState(null)
   const [verificationResponse, setVerificationResponse] = useState(null)
   const [finalEstimate, setFinalEstimate] = useState('')
   const [finalConfidence, setFinalConfidence] = useState(null)
   const [cognitiveLoad, setCognitiveLoad] = useState(null)
+
+  // SECURE ANCHORING FIX: AI advice is fetched ONLY after Stage 1 submission
+  const [fetchedAdvice, setFetchedAdvice] = useState(null)
+  const [fetchedExplanation, setFetchedExplanation] = useState(null)
+  const [isFetchingAdvice, setIsFetchingAdvice] = useState(false)
 
   const [startedAt, setStartedAt] = useState(Date.now())
 
@@ -41,20 +51,93 @@ export function useStudyWorkflow() {
   const isLastTrial = trialIndex === totalTrials - 1
   const progress = Math.round((trialIndex / totalTrials) * 100)
 
+  // Derived explanation fallback
   const explanation = useMemo(() => {
+    if (fetchedExplanation !== null) return fetchedExplanation
     if (!trial || condition === 'c0') return null
     if (trial.explanations) return trial.explanations[condition] ?? null
     return trial[condition] ?? null
-  }, [condition, trial])
+  }, [condition, trial, fetchedExplanation])
 
-  // Screen view telemetry
+  // ── AUTOSAVE & SINGLE-SITTING RESUME RECOVERY ──────────────────────────────
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(AUTOSAVE_STORAGE_KEY)
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        const elapsed = Date.now() - (parsed.savedAt || 0)
+        // Allow same-day resume window (under 24 hours); discard expired sessions
+        if (elapsed < MAX_RESUME_WINDOW_MS && parsed.participantId === participantId) {
+          if (parsed.participantType) setParticipantType(parsed.participantType)
+          if (parsed.phase && parsed.phase !== 'complete') setPhase(parsed.phase)
+          if (typeof parsed.isPractice === 'boolean') setIsPractice(parsed.isPractice)
+          if (typeof parsed.trialIndex === 'number') setTrialIndex(parsed.trialIndex)
+          if (typeof parsed.trialStep === 'number') setTrialStep(parsed.trialStep)
+          if (parsed.initialEstimate) setInitialEstimate(parsed.initialEstimate)
+          if (parsed.initialConfidence) setInitialConfidence(parsed.initialConfidence)
+        }
+      }
+    } catch (e) {
+      // Storage error fallback
+    }
+  }, [participantId])
+
+  useEffect(() => {
+    try {
+      const autosaveData = {
+        participantId,
+        participantType,
+        phase,
+        condition,
+        isPractice,
+        trialIndex,
+        trialStep,
+        initialEstimate,
+        initialConfidence,
+        savedAt: Date.now(),
+      }
+      localStorage.setItem(AUTOSAVE_STORAGE_KEY, JSON.stringify(autosaveData))
+    } catch (e) {
+      // Storage save fallback
+    }
+  }, [participantId, participantType, phase, condition, isPractice, trialIndex, trialStep, initialEstimate, initialConfidence])
+
+  // ── BEFOREUNLOAD EXIT WARNING ─────────────────────────────────────────────
+  useEffect(() => {
+    function handleBeforeUnload(e) {
+      if (phase === 'practice' || phase === 'scored') {
+        const message = 'You have an active decision study session. If you leave, your progress may be reset.'
+        e.preventDefault()
+        e.returnValue = message
+        return message
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [phase])
+
+  // ── HARD BACK-NAVIGATION LOCK ─────────────────────────────────────────────
+  // Disables browser back/forward buttons during active trial stages to prevent WOA contamination
+  useEffect(() => {
+    if (phase === 'practice' || phase === 'scored') {
+      window.history.pushState(null, '', window.location.href)
+      function handlePopState(e) {
+        window.history.pushState(null, '', window.location.href)
+      }
+      window.addEventListener('popstate', handlePopState)
+      return () => window.removeEventListener('popstate', handlePopState)
+    }
+  }, [phase, trialIndex, trialStep])
+
+  // ── TELEMETRY & SCREEN TRACKING ───────────────────────────────────────────
   useEffect(() => {
     telemetry.recordEvent(EventType.SCREEN_VIEWED, { screen: phase })
   }, [phase])
 
-  // Trial start telemetry
   useEffect(() => {
     if ((phase === 'practice' || phase === 'scored') && trial && trialStep === 1) {
+      setFetchedAdvice(null)
+      setFetchedExplanation(null)
       telemetry.recordTrialStart({
         trialId: trial.id,
         scenarioType: trial.scenarioType || trial.type,
@@ -72,9 +155,11 @@ export function useStudyWorkflow() {
     setFinalEstimate('')
     setFinalConfidence(null)
     setCognitiveLoad(null)
+    setFetchedAdvice(null)
+    setFetchedExplanation(null)
   }
 
-  // Navigation methods
+  // ── HANDLERS ──────────────────────────────────────────────────────────────
   function handleConsentSubmit(demographics) {
     telemetry.recordConsent(demographics)
     setPhase('participant-type')
@@ -120,24 +205,53 @@ export function useStudyWorkflow() {
     setPhase('scored')
   }
 
-  function submitInitialEstimate(e) {
+  // ── STEP 1: INDEPENDENT ESTIMATE SUBMISSION & ADVICE FETCHING ─────────────
+  async function submitInitialEstimate(e) {
     e?.preventDefault()
-    const value = Number(initialEstimate)
-    if (!Number.isFinite(value) || value < 0 || initialConfidence === null) return
+
+    // Accept typed numbers loosely (commas, dollar signs, decimals)
+    const normalizedVal = normalizeNumericInput(initialEstimate)
+    if (Number.isNaN(normalizedVal) || initialConfidence === null) return
 
     const dwellMs = Date.now() - startedAt
+
+    // Log independent estimate telemetry BEFORE AI advice is fetched
     telemetry.recordStep1InitialEstimate({
       trialId: trial.id,
       isPractice,
-      initialEstimate: value,
+      initialEstimate: normalizedVal,
       initialConfidence,
       dwellMs,
     })
 
+    // Update state to normalized string value
+    setInitialEstimate(String(normalizedVal))
+
+    // SECURE ANCHORING FIX: Fetch AI advice from server ONLY after Stage 1 submission
+    setIsFetchingAdvice(true)
     setTrialStep(2)
     setStartedAt(Date.now())
+
+    try {
+      const response = await fetch(`/api/telemetry?trialId=${encodeURIComponent(trial.id)}&condition=${encodeURIComponent(condition)}`)
+      if (response.ok) {
+        const data = await response.json()
+        setFetchedAdvice(data.recommendation)
+        setFetchedExplanation(data.explanation)
+      } else {
+        // Fallback to client object if offline/standalone
+        const fallback = typeof trial.recommendation === 'object' ? (trial.recommendation.active ?? trial.recommendation.correct) : trial.recommendation
+        setFetchedAdvice(fallback)
+      }
+    } catch {
+      const fallback = typeof trial.recommendation === 'object' ? (trial.recommendation.active ?? trial.recommendation.correct) : trial.recommendation
+      setFetchedAdvice(fallback)
+    } finally {
+      setIsFetchingAdvice(false)
+    }
   }
 
+  // ── STEP 2: AI REVEAL ACKNOWLEDGMENT ─────────────────────────────────────
   function acknowledgeAI() {
     const dwellMs = Date.now() - startedAt
     telemetry.recordStep2AIReveal({
@@ -152,6 +266,7 @@ export function useStudyWorkflow() {
     setStartedAt(Date.now())
   }
 
+  // ── STEP 3: VERIFICATION CHECK ───────────────────────────────────────────
   function submitVerification() {
     if (!verificationResponse) return
 
@@ -167,23 +282,27 @@ export function useStudyWorkflow() {
     setStartedAt(Date.now())
   }
 
+  // ── STEP 4: FINAL ESTIMATE & RATING SUBMISSION ───────────────────────────
   function submitFinalEstimate(e) {
     e?.preventDefault()
-    const value = Number(finalEstimate)
-    if (!Number.isFinite(value) || value < 0 || !finalConfidence || !cognitiveLoad) return
+
+    const normalizedVal = normalizeNumericInput(finalEstimate)
+    if (Number.isNaN(normalizedVal) || !finalConfidence || !cognitiveLoad) return
 
     const step4DwellMs = Date.now() - startedAt
     telemetry.recordStep4FinalEstimate({
       trialId: trial.id,
       scenario: trial,
       isPractice,
-      initialEstimate: Number(initialEstimate),
-      finalEstimate: value,
+      initialEstimate: normalizeNumericInput(initialEstimate),
+      finalEstimate: normalizedVal,
       finalConfidence,
       cognitiveLoad,
       verificationResponse,
       dwellMs: step4DwellMs,
     })
+
+    setFinalEstimate(String(normalizedVal))
 
     if (isPractice) {
       setPhase('practice-feedback')
@@ -194,6 +313,9 @@ export function useStudyWorkflow() {
 
   function advanceScoredTrial() {
     if (isLastTrial) {
+      try {
+        localStorage.removeItem(AUTOSAVE_STORAGE_KEY)
+      } catch (e) {}
       setPhase('post-task')
     } else {
       setTrialIndex((i) => i + 1)
@@ -236,6 +358,8 @@ export function useStudyWorkflow() {
     isLastTrial,
     progress,
     explanation,
+    fetchedAdvice,
+    isFetchingAdvice,
     // Step state
     initialEstimate, setInitialEstimate,
     initialConfidence, setInitialConfidence,
@@ -258,3 +382,4 @@ export function useStudyWorkflow() {
     handlePostTaskComplete,
   }
 }
+

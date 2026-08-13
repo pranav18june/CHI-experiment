@@ -3,7 +3,7 @@ import { Step1, Step2, Step3, Step4 } from './TrialSteps.jsx'
 import { formatCurrency } from '../../utils/formatters.js'
 
 export function TrialShell({
-  trial, type, trialStep, condition, explanation,
+  trial, type, trialStep, condition, explanation, fetchedAdvice, isFetchingAdvice,
   // Step 1
   initialEstimate, onInitialEstimate, initialConfidence, onInitialConfidence, onSubmitStep1,
   // Step 2
@@ -15,13 +15,14 @@ export function TrialShell({
   cognitiveLoad, onCognitiveLoad, onSubmitStep4,
 }) {
   const showDrivers = condition === 'c1'
-  const showRecommendation = trialStep >= 2
+  // SECURE ANCHORING FIX: AI recommendation is ONLY rendered when trialStep >= 2 AND fetchedAdvice is available.
+  const showRecommendation = trialStep >= 2 && fetchedAdvice != null
 
   const title = trial.title || trial.store
   const category = trial.category || trial.department
   const profile = trial.description || trial.profile
   const chartHint = trial.chart?.hint || trial.chartHint
-  const recAmount = typeof trial.recommendation === 'object' ? (trial.recommendation.active ?? trial.recommendation.correct) : trial.recommendation
+  const recAmount = fetchedAdvice ?? (typeof trial.recommendation === 'object' ? (trial.recommendation.active ?? trial.recommendation.correct) : trial.recommendation)
 
   return (
     <section className="trial-layout">
@@ -113,6 +114,7 @@ export function TrialShell({
               condition={condition}
               explanation={explanation}
               onContinue={onAcknowledgeAI}
+              isFetchingAdvice={isFetchingAdvice}
             />
           )}
 

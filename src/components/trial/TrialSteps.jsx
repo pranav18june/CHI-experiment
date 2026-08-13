@@ -1,28 +1,37 @@
-import React from 'react'
+import React, { useState } from 'react'
 import Scale from '../common/Scale.jsx'
+import { validateNumericEstimate, validateVerificationResponse } from '../../services/validationService.js'
 
-// TODO_NUMBERLINE_INPUT: Future iterations of the study protocol may replace the numeric text input with an interactive number line / slider input component.
+// TODO_NUMBERLINE_INPUT: Future iterations of the study protocol may replace the numeric text input with an interactive number line component.
 export function Step1({ type, initialEstimate, onInitialEstimate, initialConfidence, onInitialConfidence, onSubmit }) {
-  const parsed = Number(initialEstimate)
-  const canSubmit = initialEstimate !== '' && Number.isFinite(parsed) && parsed >= 0 && initialConfidence !== null
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const validation = validateNumericEstimate(initialEstimate)
+  const canSubmit = validation.isValid && initialConfidence !== null && !isSubmitting
+
+  function handleSubmit(e) {
+    e.preventDefault()
+    if (!canSubmit) return
+    setIsSubmitting(true)
+    onSubmit(e)
+  }
 
   return (
-    <form className="decision-form" onSubmit={onSubmit}>
+    <form className="decision-form" onSubmit={handleSubmit}>
       <label htmlFor="initial-decision">{type.initialPrompt}</label>
       <div className="money-input">
         <span>$</span>
         <input
           id="initial-decision"
+          type="text"
           inputMode="numeric"
-          min="0"
-          type="number"
           value={initialEstimate}
           onChange={(e) => onInitialEstimate(e.target.value)}
-          placeholder="Enter an amount"
+          placeholder="Enter your estimate"
+          autoComplete="off"
           autoFocus
         />
       </div>
-      <p className="field-note">Enter a whole dollar amount. The AI recommendation is not yet visible.</p>
+      <p className="field-note">Enter a dollar amount (e.g. 15,000 or $15000). The AI recommendation is not yet visible.</p>
       <Scale
         label="How confident are you in this estimate?"
         low="Not at all confident"
@@ -31,30 +40,52 @@ export function Step1({ type, initialEstimate, onInitialEstimate, initialConfide
         onSelect={onInitialConfidence}
       />
       <button className="button primary full" type="submit" disabled={!canSubmit}>
-        See AI recommendation <span>→</span>
+        {isSubmitting ? 'Loading AI recommendation...' : 'See AI recommendation →'}
       </button>
     </form>
   )
 }
 
-export function Step2({ condition, explanation, onContinue }) {
+export function Step2({ condition, explanation, onContinue, isFetchingAdvice }) {
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  function handleContinue() {
+    if (isSubmitting || isFetchingAdvice) return
+    setIsSubmitting(true)
+    onContinue()
+  }
+
   return (
     <>
-      {explanation && (
+      {isFetchingAdvice ? (
         <section className="card explanation">
-          <p className="eyebrow">
-            {condition === 'c3' ? 'What would change this' : 'Context'}
-          </p>
-          <p>{explanation}</p>
+          <p className="eyebrow">Loading</p>
+          <p>Fetching AI recommendation...</p>
         </section>
+      ) : (
+        <>
+          {explanation && (
+            <section className="card explanation">
+              <p className="eyebrow">
+                {condition === 'c3' ? 'What would change this' : 'Context'}
+              </p>
+              <p>{explanation}</p>
+            </section>
+          )}
+          {condition === 'c0' && (
+            <p className="field-note" style={{ margin: '0 0 4px' }}>
+              Review the chart and the AI recommendation above before continuing.
+            </p>
+          )}
+        </>
       )}
-      {condition === 'c0' && (
-        <p className="field-note" style={{ margin: '0 0 4px' }}>
-          Review the chart and the AI recommendation above before continuing.
-        </p>
-      )}
-      <button className="button primary full" type="button" onClick={onContinue}>
-        Continue <span>→</span>
+      <button
+        className="button primary full"
+        type="button"
+        disabled={isSubmitting || isFetchingAdvice}
+        onClick={handleContinue}
+      >
+        {isSubmitting ? 'Saving...' : 'Continue →'}
       </button>
     </>
   )
@@ -68,6 +99,15 @@ const VERIFICATION_OPTIONS = [
 ]
 
 export function Step3({ verificationResponse, onVerification, onSubmit }) {
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const isValid = validateVerificationResponse(verificationResponse)
+
+  function handleSubmit() {
+    if (!isValid || isSubmitting) return
+    setIsSubmitting(true)
+    onSubmit()
+  }
+
   return (
     <section className="card verification-card">
       <p className="eyebrow">Verification</p>
@@ -88,11 +128,11 @@ export function Step3({ verificationResponse, onVerification, onSubmit }) {
       <button
         className="button primary full"
         type="button"
-        disabled={!verificationResponse}
-        onClick={onSubmit}
+        disabled={!isValid || isSubmitting}
+        onClick={handleSubmit}
         style={{ marginTop: '14px' }}
       >
-        Continue <span>→</span>
+        {isSubmitting ? 'Saving...' : 'Continue →'}
       </button>
     </section>
   )
@@ -105,23 +145,30 @@ export function Step4({
   cognitiveLoad, onCognitiveLoad,
   onSubmit,
 }) {
-  const parsed = Number(finalEstimate)
-  const canSubmit = finalEstimate !== '' && Number.isFinite(parsed) && parsed >= 0
-    && finalConfidence !== null && cognitiveLoad !== null
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const validation = validateNumericEstimate(finalEstimate)
+  const canSubmit = validation.isValid && finalConfidence !== null && cognitiveLoad !== null && !isSubmitting
+
+  function handleSubmit(e) {
+    e.preventDefault()
+    if (!canSubmit) return
+    setIsSubmitting(true)
+    onSubmit(e)
+  }
 
   return (
-    <form className="decision-form" onSubmit={onSubmit}>
+    <form className="decision-form" onSubmit={handleSubmit}>
       <label htmlFor="final-decision">{type.decisionPrompt}</label>
       <div className="money-input">
         <span>$</span>
         <input
           id="final-decision"
+          type="text"
           inputMode="numeric"
-          min="0"
-          type="number"
           value={finalEstimate}
           onChange={(e) => onFinalEstimate(e.target.value)}
-          placeholder="Enter an amount"
+          placeholder="Enter your final decision"
+          autoComplete="off"
           autoFocus
         />
       </div>
@@ -141,7 +188,7 @@ export function Step4({
         onSelect={onCognitiveLoad}
       />
       <button className="button primary full" type="submit" disabled={!canSubmit}>
-        Continue <span>→</span>
+        {isSubmitting ? 'Submitting...' : 'Continue →'}
       </button>
     </form>
   )
