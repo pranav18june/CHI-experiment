@@ -27,6 +27,7 @@ export const safetyStockScenarios = [
     scenarioType: SCENARIO_TYPE,
     isPractice: false,
     difficulty: 'easy',
+    groundTruthOptimal: 29251,
 
     shortLabel:    SHORT_LABEL,
     title:         'Store 42',
@@ -65,7 +66,6 @@ export const safetyStockScenarios = [
       optimal:   29251,
     },
 
-    // Explanations for biased/incorrect AI advice
     explanations: {
       c0: null,
       c1: 'TODO_C1_EXPLANATION_SS1',
@@ -80,7 +80,6 @@ export const safetyStockScenarios = [
         'If volatility returns to that historical level, a smaller buffer of roughly $29,250 would be sufficient.',
     },
 
-    // Explanations for correct/cost-optimal AI advice
     correctExplanations: {
       c0: null,
       c1: 'Driver weights reflect stable historical demand with moderate seasonal adjustments.',
@@ -108,6 +107,7 @@ export const safetyStockScenarios = [
     scenarioType: SCENARIO_TYPE,
     isPractice: false,
     difficulty: 'medium',
+    groundTruthOptimal: 49159,
 
     shortLabel:    SHORT_LABEL,
     title:         'Store 13',
@@ -185,6 +185,7 @@ export const safetyStockScenarios = [
     scenarioType: SCENARIO_TYPE,
     isPractice: false,
     difficulty: 'hard',
+    groundTruthOptimal: 67054,
 
     shortLabel:    SHORT_LABEL,
     title:         'Store 10',

@@ -431,6 +431,7 @@ export function StudyProvider({ children }) {
       aiRecommendation: fetchedAdvice,
       isCorrect: currentIsCorrect,
       errorDirection: currentErrorDirection,
+      groundTruthOptimal: trial.groundTruthOptimal ?? (trial.recommendation?.correct ?? trial.recommendation?.optimal),
       initialEstimate: normalizeNumericInput(initialEstimate),
       finalEstimate: normalizedVal,
       finalConfidence,

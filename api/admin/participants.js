@@ -14,7 +14,8 @@ const SCORED_TRIAL_TOTAL = 12
  * Returns an aggregated summary of all participants for the research admin dashboard:
  *   - 2×4 Factorial breakdown (Novice vs Expert × C0/C1/C2/C3)
  *   - Global condition distribution stats
- *   - Per-participant session info, trial progress, and average WoA
+ *   - Primary outcome measure: Directional Cost Regret (asymmetrically weighted)
+ *   - Secondary outcome measures: Weight of Advice (WoA), Confidence, Cognitive Load
  */
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true')
@@ -72,16 +73,18 @@ export default async function handler(req, res) {
     const screenMap = {}
     for (const s of screenAgg) screenMap[s._id] = s.currentPhase
 
-    // ── 3. Trial completion stats from TrialResult ───────────────────────────
+    // ── 3. Trial completion stats & outcome measures from TrialResult ────────
     const trialAgg = await TrialResult.aggregate([
       { $match: { isPractice: false } },
       {
         $group: {
-          _id:             '$participantId',
-          trialsCompleted: { $sum: 1 },
-          avgWoA:          { $avg: '$weightOfAdvice' },
-          avgConfidence:   { $avg: '$finalConfidence' },
-          avgCognitiveLoad:{ $avg: '$cognitiveLoad' },
+          _id:                      '$participantId',
+          trialsCompleted:          { $sum: 1 },
+          avgWoA:                   { $avg: '$weightOfAdvice' },
+          avgConfidence:            { $avg: '$finalConfidence' },
+          avgCognitiveLoad:         { $avg: '$cognitiveLoad' },
+          avgDirectionalCostRegret: { $avg: '$directionalCostRegret' },
+          avgCostRegret:            { $avg: '$costRegret' },
         },
       },
     ])
@@ -95,6 +98,9 @@ export default async function handler(req, res) {
     ])
 
     const participants = []
+    let sumWoA = 0, countWoA = 0
+    let sumRegret = 0, countRegret = 0
+
     for (const pid of allIds) {
       const modeRec = modeMap[pid] || {}
       const session = sessionAgg.find((s) => s._id === pid) || {}
@@ -104,20 +110,31 @@ export default async function handler(req, res) {
       const cond    = modeRec.condition || session.condition || 'c0'
       const type    = modeRec.participantType || session.participantType || 'novice'
 
+      if (trial.avgWoA != null) {
+        sumWoA += trial.avgWoA
+        countWoA++
+      }
+      if (trial.avgDirectionalCostRegret != null) {
+        sumRegret += trial.avgDirectionalCostRegret
+        countRegret++
+      }
+
       participants.push({
-        participantId:   pid,
-        condition:       cond,
-        participantType: type,
-        sessionStarted:  session.sessionStarted  || null,
-        lastSeen:        session.lastSeen        || null,
-        currentPhase:    phase,
-        trialsCompleted: tc,
-        totalTrials:     SCORED_TRIAL_TOTAL,
-        progress:        Math.round((tc / SCORED_TRIAL_TOTAL) * 100),
-        isComplete:      phase === 'complete',
-        avgWoA:          trial.avgWoA           != null ? Math.round(trial.avgWoA * 1000) / 1000 : null,
-        avgConfidence:   trial.avgConfidence    != null ? Math.round(trial.avgConfidence * 10) / 10 : null,
-        avgCognitiveLoad:trial.avgCognitiveLoad != null ? Math.round(trial.avgCognitiveLoad * 10) / 10 : null,
+        participantId:            pid,
+        condition:                cond,
+        participantType:          type,
+        sessionStarted:           session.sessionStarted  || null,
+        lastSeen:                 session.lastSeen        || null,
+        currentPhase:             phase,
+        trialsCompleted:          tc,
+        totalTrials:              SCORED_TRIAL_TOTAL,
+        progress:                 Math.round((tc / SCORED_TRIAL_TOTAL) * 100),
+        isComplete:               phase === 'complete',
+        avgWoA:                   trial.avgWoA != null ? Math.round(trial.avgWoA * 1000) / 1000 : null,
+        avgConfidence:            trial.avgConfidence != null ? Math.round(trial.avgConfidence * 10) / 10 : null,
+        avgCognitiveLoad:         trial.avgCognitiveLoad != null ? Math.round(trial.avgCognitiveLoad * 10) / 10 : null,
+        avgDirectionalCostRegret: trial.avgDirectionalCostRegret != null ? Math.round(trial.avgDirectionalCostRegret) : null,
+        avgCostRegret:            trial.avgCostRegret != null ? Math.round(trial.avgCostRegret) : null,
       })
     }
 
@@ -148,13 +165,15 @@ export default async function handler(req, res) {
     }
 
     const stats = {
-      total:      participants.length,
+      total:                    participants.length,
       types,
       conditions,
       matrix,
       completed,
       inProgress,
-      notStarted: participants.length - completed - inProgress,
+      notStarted:               participants.length - completed - inProgress,
+      globalAvgWoA:             countWoA > 0 ? Math.round((sumWoA / countWoA) * 1000) / 1000 : null,
+      globalAvgDirectionalRegret: countRegret > 0 ? Math.round(sumRegret / countRegret) : null,
     }
 
     return res.status(200).json({ stats, participants })

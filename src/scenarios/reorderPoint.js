@@ -27,6 +27,7 @@ export const reorderPointScenarios = [
     scenarioType: SCENARIO_TYPE,
     isPractice: false,
     difficulty: 'easy',
+    groundTruthOptimal: 7507,
 
     shortLabel:    SHORT_LABEL,
     title:         'Pet Shop',
@@ -108,6 +109,7 @@ export const reorderPointScenarios = [
     scenarioType: SCENARIO_TYPE,
     isPractice: false,
     difficulty: 'medium',
+    groundTruthOptimal: 41112,
 
     shortLabel:    SHORT_LABEL,
     title:         'Bed Bath Table',
@@ -190,6 +192,7 @@ export const reorderPointScenarios = [
     scenarioType: SCENARIO_TYPE,
     isPractice: false,
     difficulty: 'hard',
+    groundTruthOptimal: 16569,
 
     shortLabel:    SHORT_LABEL,
     title:         'Office Furniture',

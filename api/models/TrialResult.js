@@ -1,5 +1,11 @@
 import mongoose from 'mongoose'
 
+/**
+ * Analytical Trial Result Model
+ *
+ * Captures per-trial participant decisions, Judge-Advisor Weight of Advice (WoA),
+ * and the protocol's primary outcome measure: Directional Cost Regret (asymmetrically weighted).
+ */
 const TrialResultSchema = new mongoose.Schema(
   {
     participantId:   { type: String, required: true, index: true },
@@ -13,6 +19,11 @@ const TrialResultSchema = new mongoose.Schema(
     // Ground-Truth Correctness & Error Direction
     isCorrect:      { type: Boolean, default: null },
     errorDirection: { type: String, enum: ['high', 'low', 'na', null], default: null },
+
+    // Ground Truth & Regret Metrics (Primary Outcome Measure)
+    groundTruthOptimal:    { type: Number, default: null },
+    costRegret:            { type: Number, default: null }, // Unsigned: |Final - Optimal|
+    directionalCostRegret: { type: Number, default: null }, // Signed & asymmetrically weighted
 
     // Judge-Advisor values & Weight of Advice
     initialEstimate:  { type: Number, required: true },

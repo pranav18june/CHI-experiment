@@ -27,6 +27,7 @@ export const newsvendorScenarios = [
     scenarioType: SCENARIO_TYPE,
     isPractice: false,
     difficulty: 'medium',
+    groundTruthOptimal: 346257,
 
     shortLabel:    SHORT_LABEL,
     title:         'Store 10',
@@ -103,6 +104,7 @@ export const newsvendorScenarios = [
     scenarioType: SCENARIO_TYPE,
     isPractice: false,
     difficulty: 'medium',
+    groundTruthOptimal: 210921,
 
     shortLabel:    SHORT_LABEL,
     title:         'Store 4',
@@ -179,6 +181,7 @@ export const newsvendorScenarios = [
     scenarioType: SCENARIO_TYPE,
     isPractice: false,
     difficulty: 'hard',
+    groundTruthOptimal: 218222,
 
     shortLabel:    SHORT_LABEL,
     title:         'Store 14',

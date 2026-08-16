@@ -13,6 +13,7 @@ export const practiceScenarios = [
     scenarioType: 'safetyStock',
     isPractice: true,
     difficulty: 'easy',
+    groundTruthOptimal: 15000,
 
     shortLabel:    'Safety stock buffer',
     title:         'Product Category X',
@@ -59,6 +60,13 @@ export const practiceScenarios = [
       c3: 'If weekly demand volatility for this category were about 30% higher than the illustrative pattern (near $8,400 instead of the observed $6,450), a buffer of $19,500 would be justified. The illustrative data does not currently support that higher volatility estimate.',
     },
 
+    correctExplanations: {
+      c0: null,
+      c1: 'Numerical explanation: Review the weekly sales chart and driver weights above. The AI recommendation is $15,000.',
+      c2: 'This illustrative category shows fairly steady demand from week to week, with a modest uptick during colder weeks. Because historical volatility here is relatively low, the AI recommends a modest safety stock buffer of $15,000 to cover typical week-to-week swings without tying up excess capital.',
+      c3: 'If weekly demand volatility for this category were about 30% higher than the illustrative pattern (near $8,400 instead of the observed $6,450), a buffer of $19,500 would be justified. The illustrative data does not currently support that higher volatility estimate.',
+    },
+
     metadata: {
       demandMean: 50000,
       demandStdDev: 6450,
@@ -74,6 +82,7 @@ export const practiceScenarios = [
     scenarioType: 'newsvendor',
     isPractice: true,
     difficulty: 'easy',
+    groundTruthOptimal: 86000,
 
     shortLabel:    'Newsvendor',
     title:         'Product Category Y',
@@ -118,6 +127,13 @@ export const practiceScenarios = [
       c1: 'Numerical explanation: Review the holiday-week sales chart and driver weights above. The AI recommendation is $60,000.',
       c2: 'While this illustrative category does see a holiday increase, the AI treats the upcoming peak as more modest than the pattern suggests, recommending a comparatively conservative order of $60,000 for the peak week.',
       c3: 'This recommendation assumes expected peak-week demand of about $34,000. The illustrative pattern for this category instead shows an average peak-week demand closer to $60,000 — substantially higher. If the upcoming peak matches that pattern, a larger order of roughly $86,000 would be needed.',
+    },
+
+    correctExplanations: {
+      c0: null,
+      c1: 'Numerical explanation: Historical holiday-week sales support optimal stocking level Q* = $86,000.',
+      c2: 'With holiday-week demand averaging $60,000 and standard deviation of $67,500, critical ratio economics support an optimal order of $86,000.',
+      c3: 'This recommendation reflects optimal coverage for high holiday variance. If holiday variance were lower, $60,000 would suffice, but $86,000 is cost-optimal.',
     },
 
     metadata: {

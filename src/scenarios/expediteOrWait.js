@@ -25,6 +25,7 @@ export const expediteOrWaitScenarios = [
     scenarioType: SCENARIO_TYPE,
     isPractice: false,
     difficulty: 'easy',
+    groundTruthOptimal: 181,
 
     shortLabel:    SHORT_LABEL,
     title:         'Fashion Bags',
@@ -102,6 +103,7 @@ export const expediteOrWaitScenarios = [
     scenarioType: SCENARIO_TYPE,
     isPractice: false,
     difficulty: 'medium',
+    groundTruthOptimal: 1106,
 
     shortLabel:    SHORT_LABEL,
     title:         'Auto Parts',
@@ -179,6 +181,7 @@ export const expediteOrWaitScenarios = [
     scenarioType: SCENARIO_TYPE,
     isPractice: false,
     difficulty: 'hard',
+    groundTruthOptimal: 245,
 
     shortLabel:    SHORT_LABEL,
     title:         'Electronics',

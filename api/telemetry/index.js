@@ -3,6 +3,7 @@ import TelemetryEvent from '../models/TelemetryEvent.js'
 import TrialResult from '../models/TrialResult.js'
 import ParticipantTrialPlan from '../models/ParticipantTrialPlan.js'
 import { getScenarioById, getExplanation } from '../../src/scenarios/index.js'
+import { STOCKOUT_PENALTY_WEIGHT, HOLDING_PENALTY_WEIGHT } from '../../src/config/index.js'
 
 /**
  * Helper to compute Weight of Advice (WoA).
@@ -12,6 +13,50 @@ function calculateWoA(initial, advice, final) {
   if (advice === initial) return null
   const woa = (final - initial) / (advice - initial)
   return Number.isFinite(woa) ? Math.round(woa * 10000) / 10000 : null
+}
+
+/**
+ * Protocol Primary Outcome Measure: Directional Cost Regret
+ *
+ * Computes:
+ *   1. costRegret (unsigned): |finalEstimate - groundTruthOptimal|
+ *   2. directionalCostRegret (signed, asymmetrically weighted):
+ *      - Under-estimation (stockout risk / under-buffering): (final - optimal) * STOCKOUT_PENALTY_WEIGHT (~1.85x)
+ *      - Over-estimation (holding cost / over-buffering): (final - optimal) * HOLDING_PENALTY_WEIGHT (1.0x)
+ *
+ * @param {number} finalEstimate - Participant final decision
+ * @param {number} groundTruthOptimal - Cost-optimal benchmark
+ * @param {number} [stockoutWeight=1.85] - Multiplier for under-estimation
+ * @param {number} [holdingWeight=1.0] - Multiplier for over-estimation
+ * @returns {{ costRegret: number|null, directionalCostRegret: number|null }}
+ */
+function calculateRegret(
+  finalEstimate,
+  groundTruthOptimal,
+  stockoutWeight = STOCKOUT_PENALTY_WEIGHT,
+  holdingWeight = HOLDING_PENALTY_WEIGHT
+) {
+  if (finalEstimate == null || groundTruthOptimal == null) {
+    return { costRegret: null, directionalCostRegret: null }
+  }
+  const finalNum = Number(finalEstimate)
+  const optNum = Number(groundTruthOptimal)
+  if (!Number.isFinite(finalNum) || !Number.isFinite(optNum)) {
+    return { costRegret: null, directionalCostRegret: null }
+  }
+
+  const signedDiff = finalNum - optNum
+  const costRegret = Math.abs(signedDiff)
+
+  // Asymmetric weighting: underestimating (stockout side) penalized by stockoutWeight
+  const weightedDiff = signedDiff < 0
+    ? signedDiff * stockoutWeight
+    : signedDiff * holdingWeight
+
+  return {
+    costRegret: Math.round(costRegret * 100) / 100,
+    directionalCostRegret: Math.round(weightedDiff * 100) / 100,
+  }
 }
 
 export default async function handler(req, res) {
@@ -86,6 +131,7 @@ export default async function handler(req, res) {
       explanation: condition === 'c0' ? null : explanation,
       isCorrect,
       errorDirection,
+      groundTruthOptimal: scenario.groundTruthOptimal ?? (typeof scenario.recommendation === 'object' ? (scenario.recommendation.correct ?? scenario.recommendation.optimal) : null),
     })
   }
 
@@ -130,7 +176,13 @@ export default async function handler(req, res) {
       // If this event is a completed trial decision (FINAL_ESTIMATE_SUBMITTED), extract analytical row
       if (ev.eventType === 'FINAL_ESTIMATE_SUBMITTED' && ev.payload && ev.trialId) {
         const p = ev.payload
+        const scenario = getScenarioById(ev.trialId)
+        const groundTruthOptimal = p.groundTruthOptimal != null
+          ? Number(p.groundTruthOptimal)
+          : (scenario?.groundTruthOptimal ?? scenario?.recommendation?.correct ?? scenario?.recommendation?.optimal ?? null)
+
         const woa = calculateWoA(p.initialEstimate, p.aiRecommendation, p.finalEstimate)
+        const { costRegret, directionalCostRegret } = calculateRegret(p.finalEstimate, groundTruthOptimal)
 
         trialResultsToUpsert.push({
           updateOne: {
@@ -146,6 +198,9 @@ export default async function handler(req, res) {
                 isPractice: Boolean(p.isPractice),
                 isCorrect: p.isCorrect != null ? Boolean(p.isCorrect) : null,
                 errorDirection: p.errorDirection || null,
+                groundTruthOptimal,
+                costRegret,
+                directionalCostRegret,
                 initialEstimate: Number(p.initialEstimate),
                 aiRecommendation: Number(p.aiRecommendation),
                 finalEstimate: Number(p.finalEstimate),

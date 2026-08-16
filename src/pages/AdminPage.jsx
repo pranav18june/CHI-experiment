@@ -47,6 +47,12 @@ function timeAgo(iso) {
   return `${Math.floor(secs / 86400)}d ago`
 }
 
+function fmtRegret(val) {
+  if (val == null) return '—'
+  const sign = val < 0 ? '−$' : '+$'
+  return `${sign}${Math.abs(val).toLocaleString()}`
+}
+
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 function ConditionBadge({ condition }) {
@@ -288,14 +294,14 @@ export default function AdminPage() {
               sub={`${stats.completed} complete · ${stats.inProgress} active`}
             />
             <KpiCard
-              label="Novices vs. Experts"
-              value={`${stats.types?.novice ?? 0} · ${stats.types?.expert ?? 0}`}
-              sub="Novice Students · Domain Experts"
+              label="Directional Cost Regret"
+              value={stats.globalAvgDirectionalRegret != null ? fmtRegret(stats.globalAvgDirectionalRegret) : '—'}
+              sub="Primary outcome (1.85× stockout penalty)"
             />
             <KpiCard
-              label="Conditions C0 · C1 · C2 · C3"
-              value={`${stats.conditions?.c0 ?? 0} · ${stats.conditions?.c1 ?? 0} · ${stats.conditions?.c2 ?? 0} · ${stats.conditions?.c3 ?? 0}`}
-              sub="Baseline · Drivers · Narrative · Counterfactual"
+              label="Avg Weight of Advice"
+              value={stats.globalAvgWoA != null ? stats.globalAvgWoA.toFixed(3) : '—'}
+              sub="Judge-Advisor WoA metric"
             />
             <KpiCard
               label="Completion rate"
@@ -425,6 +431,9 @@ export default function AdminPage() {
                 <th onClick={() => toggleSort('progress')} className="adm-th--sortable">
                   Progress <SortIcon field="progress" sortField={sortField} sortDir={sortDir} />
                 </th>
+                <th onClick={() => toggleSort('avgDirectionalCostRegret')} className="adm-th--sortable" title="Signed distance from cost-optimal, asymmetrically weighted">
+                  Avg Regret <SortIcon field="avgDirectionalCostRegret" sortField={sortField} sortDir={sortDir} />
+                </th>
                 <th onClick={() => toggleSort('avgWoA')} className="adm-th--sortable">
                   Avg WoA <SortIcon field="avgWoA" sortField={sortField} sortDir={sortDir} />
                 </th>
@@ -442,7 +451,7 @@ export default function AdminPage() {
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="adm-empty">
+                  <td colSpan={10} className="adm-empty">
                     {loading ? 'Loading…' : 'No participants match the current filters.'}
                   </td>
                 </tr>
@@ -460,6 +469,13 @@ export default function AdminPage() {
                   <td>
                     <ProgressBar value={p.progress} />
                     <span className="adm-trial-count">{p.trialsCompleted}/{p.totalTrials}</span>
+                  </td>
+                  <td className="adm-num" style={{ fontFamily: 'var(--mono)', fontWeight: 600 }}>
+                    {p.avgDirectionalCostRegret != null ? (
+                      <span style={{ color: p.avgDirectionalCostRegret < 0 ? '#b91c1c' : '#0369a1' }}>
+                        {fmtRegret(p.avgDirectionalCostRegret)}
+                      </span>
+                    ) : '—'}
                   </td>
                   <td className="adm-num">{p.avgWoA != null ? p.avgWoA.toFixed(3) : '—'}</td>
                   <td className="adm-num">{p.avgConfidence != null ? p.avgConfidence.toFixed(1) : '—'}</td>
