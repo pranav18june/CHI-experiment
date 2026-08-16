@@ -4,6 +4,8 @@ import { trials, practiceTrials, studyTypes } from '../studyData.js'
 import telemetry, { EventType } from '../telemetry.js'
 import CONFIG from '../config/index.js'
 import { normalizeNumericInput } from '../services/validationService.js'
+import { generateParticipantTrialPlan } from '../utils/counterbalance.js'
+import { getScenarioById, getExplanation as lookupExplanation } from '../scenarios/index.js'
 
 // ── Storage Keys ──────────────────────────────────────────────────────────────
 const AUTOSAVE_STORAGE_KEY = 'study-session-autosave-v1'
@@ -56,19 +58,23 @@ function assignConditionFallback(participantType = 'novice') {
   try {
     const raw = localStorage.getItem(CONDITION_COUNTER_KEY)
     const counts = raw ? JSON.parse(raw) : {
-      novice: { c0: 0, c1: 0, c2: 0, c3: 0 },
-      expert: { c0: 0, c1: 0, c2: 0, c3: 0 },
+      novice: { c0: 0, c1: 0, c2: 0, c3: 0, count: 0 },
+      expert: { c0: 0, c1: 0, c2: 0, c3: 0, count: 0 },
     }
-    if (!counts[group]) counts[group] = { c0: 0, c1: 0, c2: 0, c3: 0 }
+    if (!counts[group]) counts[group] = { c0: 0, c1: 0, c2: 0, c3: 0, count: 0 }
     const groupCounts = counts[group]
     const minCount = Math.min(...CONDITIONS.map((c) => groupCounts[c] ?? 0))
     const tied = CONDITIONS.filter((c) => (groupCounts[c] ?? 0) === minCount)
     const chosen = tied[Math.floor(Math.random() * tied.length)]
     counts[group][chosen] = (groupCounts[chosen] ?? 0) + 1
+    counts[group].count = (groupCounts.count ?? 0) + 1
     localStorage.setItem(CONDITION_COUNTER_KEY, JSON.stringify(counts))
-    return chosen
+    return { condition: chosen, scheduleIndex: counts[group].count }
   } catch {
-    return CONDITIONS[Math.floor(Math.random() * CONDITIONS.length)]
+    return {
+      condition: CONDITIONS[Math.floor(Math.random() * CONDITIONS.length)],
+      scheduleIndex: Math.floor(Math.random() * 8),
+    }
   }
 }
 
@@ -105,6 +111,20 @@ export function StudyProvider({ children }) {
       }
     } catch {}
     return 'c0' // default fallback for direct route preview
+  })
+
+  // ── Pre-assigned Counterbalanced 12-Trial Plan ─────────────────────────────
+  const [trialPlan, setTrialPlan] = useState(() => {
+    try {
+      const saved = localStorage.getItem(AUTOSAVE_STORAGE_KEY)
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        if (parsed.trialPlan && Array.isArray(parsed.trialPlan)) {
+          return parsed.trialPlan
+        }
+      }
+    } catch {}
+    return generateParticipantTrialPlan(0, getScenarioById)
   })
 
   // ── Phase derived directly from current URL path ────────────────────────────
@@ -152,6 +172,8 @@ export function StudyProvider({ children }) {
 
   const [fetchedAdvice, setFetchedAdvice] = useState(null)
   const [fetchedExplanation, setFetchedExplanation] = useState(null)
+  const [currentIsCorrect, setCurrentIsCorrect] = useState(null)
+  const [currentErrorDirection, setCurrentErrorDirection] = useState(null)
   const [isFetchingAdvice, setIsFetchingAdvice] = useState(false)
 
   const [startedAt, setStartedAt] = useState(Date.now())
@@ -168,9 +190,8 @@ export function StudyProvider({ children }) {
   const explanation = useMemo(() => {
     if (fetchedExplanation !== null) return fetchedExplanation
     if (!trial || condition === 'c0') return null
-    if (trial.explanations) return trial.explanations[condition] ?? null
-    return trial[condition] ?? null
-  }, [condition, trial, fetchedExplanation])
+    return lookupExplanation(trial, condition, currentIsCorrect ?? false)
+  }, [condition, trial, fetchedExplanation, currentIsCorrect])
 
   // ── Autosave recovery (only restores if on root '/' and active session exists) ─
   useEffect(() => {
@@ -182,6 +203,7 @@ export function StudyProvider({ children }) {
         if (elapsed < MAX_RESUME_WINDOW_MS && parsed.participantId === participantId) {
           if (parsed.participantType) setParticipantType(parsed.participantType)
           if (parsed.condition && CONDITIONS.includes(parsed.condition)) setCondition(parsed.condition)
+          if (parsed.trialPlan) setTrialPlan(parsed.trialPlan)
           if (typeof parsed.isPractice === 'boolean') setIsPractice(parsed.isPractice)
           if (typeof parsed.trialIndex === 'number') setTrialIndex(parsed.trialIndex)
           if (typeof parsed.trialStep === 'number') setTrialStep(parsed.trialStep)
@@ -201,12 +223,12 @@ export function StudyProvider({ children }) {
   useEffect(() => {
     try {
       localStorage.setItem(AUTOSAVE_STORAGE_KEY, JSON.stringify({
-        participantId, participantType, phase, condition,
+        participantId, participantType, phase, condition, trialPlan,
         isPractice, trialIndex, trialStep, initialEstimate, initialConfidence,
         savedAt: Date.now(),
       }))
     } catch {}
-  }, [participantId, participantType, phase, condition,
+  }, [participantId, participantType, phase, condition, trialPlan,
       isPractice, trialIndex, trialStep, initialEstimate, initialConfidence])
 
   // ── Telemetry ──────────────────────────────────────────────────────────────
@@ -218,6 +240,8 @@ export function StudyProvider({ children }) {
     if ((phase === 'practice' || phase === 'scored') && trial && trialStep === 1) {
       setFetchedAdvice(null)
       setFetchedExplanation(null)
+      setCurrentIsCorrect(null)
+      setCurrentErrorDirection(null)
       telemetry.recordTrialStart({
         trialId: trial.id,
         scenarioType: trial.scenarioType || trial.type,
@@ -238,10 +262,12 @@ export function StudyProvider({ children }) {
     setCognitiveLoad(null)
     setFetchedAdvice(null)
     setFetchedExplanation(null)
+    setCurrentIsCorrect(null)
+    setCurrentErrorDirection(null)
   }
 
   /**
-   * Fetches condition assignment balanced within the participant's own expertise group.
+   * Fetches condition assignment and 12-trial plan balanced within the participant's own expertise group.
    */
   async function fetchConditionForGroup(pid, groupType) {
     try {
@@ -255,15 +281,20 @@ export function StudyProvider({ children }) {
         const assignedCond = data.condition || data.surveyMode
         if (CONDITIONS.includes(assignedCond)) {
           setCondition(assignedCond)
+          if (data.trialPlan && Array.isArray(data.trialPlan)) {
+            setTrialPlan(data.trialPlan)
+          }
           telemetry.setSessionIdentity({ condition: assignedCond, participantType: groupType })
           return assignedCond
         }
       }
     } catch {}
     const fallback = assignConditionFallback(groupType)
-    setCondition(fallback)
-    telemetry.setSessionIdentity({ condition: fallback, participantType: groupType })
-    return fallback
+    setCondition(fallback.condition)
+    const localPlan = generateParticipantTrialPlan(fallback.scheduleIndex, getScenarioById)
+    setTrialPlan(localPlan)
+    telemetry.setSessionIdentity({ condition: fallback.condition, participantType: groupType })
+    return fallback.condition
   }
 
   // ── Handlers ───────────────────────────────────────────────────────────────
@@ -277,7 +308,7 @@ export function StudyProvider({ children }) {
   // Step 2: Expertise selected on '/type' -> Assign condition balanced WITHIN group
   async function handleParticipantTypeSelect(selectedType) {
     setParticipantType(selectedType)
-    // 2x4 balancing: assign condition within Novice vs Expert group
+    // 2x4 balancing & counterbalanced trial plan assignment
     const assignedCondition = await fetchConditionForGroup(participantId, selectedType)
     telemetry.recordParticipantType(selectedType, assignedCondition)
     setPhase(selectedType === 'novice' ? 'training' : 'walkthrough')
@@ -333,23 +364,38 @@ export function StudyProvider({ children }) {
 
     try {
       const response = await fetch(
-        `/api/telemetry?trialId=${encodeURIComponent(trial.id)}&condition=${encodeURIComponent(condition)}`
+        `/api/telemetry?trialId=${encodeURIComponent(trial.id)}&condition=${encodeURIComponent(condition)}&participantId=${encodeURIComponent(participantId)}`
       )
       if (response.ok) {
         const data = await response.json()
         setFetchedAdvice(data.recommendation)
         setFetchedExplanation(data.explanation)
+        setCurrentIsCorrect(data.isCorrect)
+        setCurrentErrorDirection(data.errorDirection)
       } else {
-        const fallback = typeof trial.recommendation === 'object'
-          ? (trial.recommendation.active ?? trial.recommendation.correct)
-          : trial.recommendation
+        // Fallback to local plan / scenario values
+        const planItem = !isPractice && trialPlan ? trialPlan.find((t) => t.trialId === trial.id) : null
+        const isCorr = isPractice ? true : (planItem ? planItem.isCorrect : false)
+        const errDir = isPractice ? 'na' : (planItem ? planItem.errorDirection : 'high')
+        const fallback = isCorr
+          ? (trial.recommendation.correct ?? trial.recommendation.optimal)
+          : (trial.recommendation.incorrect ?? trial.recommendation.active)
         setFetchedAdvice(fallback)
+        setCurrentIsCorrect(isCorr)
+        setCurrentErrorDirection(errDir)
+        setFetchedExplanation(lookupExplanation(trial, condition, isCorr))
       }
     } catch {
-      const fallback = typeof trial.recommendation === 'object'
-        ? (trial.recommendation.active ?? trial.recommendation.correct)
-        : trial.recommendation
+      const planItem = !isPractice && trialPlan ? trialPlan.find((t) => t.trialId === trial.id) : null
+      const isCorr = isPractice ? true : (planItem ? planItem.isCorrect : false)
+      const errDir = isPractice ? 'na' : (planItem ? planItem.errorDirection : 'high')
+      const fallback = isCorr
+        ? (trial.recommendation.correct ?? trial.recommendation.optimal)
+        : (trial.recommendation.incorrect ?? trial.recommendation.active)
       setFetchedAdvice(fallback)
+      setCurrentIsCorrect(isCorr)
+      setCurrentErrorDirection(errDir)
+      setFetchedExplanation(lookupExplanation(trial, condition, isCorr))
     } finally {
       setIsFetchingAdvice(false)
     }
@@ -379,9 +425,17 @@ export function StudyProvider({ children }) {
 
     const step4DwellMs = Date.now() - startedAt
     telemetry.recordStep4FinalEstimate({
-      trialId: trial.id, scenario: trial, isPractice,
+      trialId: trial.id,
+      scenario: trial,
+      isPractice,
+      aiRecommendation: fetchedAdvice,
+      isCorrect: currentIsCorrect,
+      errorDirection: currentErrorDirection,
       initialEstimate: normalizeNumericInput(initialEstimate),
-      finalEstimate: normalizedVal, finalConfidence, cognitiveLoad, verificationResponse,
+      finalEstimate: normalizedVal,
+      finalConfidence,
+      cognitiveLoad,
+      verificationResponse,
       dwellMs: step4DwellMs,
     })
     setFinalEstimate(String(normalizedVal))
@@ -423,12 +477,13 @@ export function StudyProvider({ children }) {
   }
 
   const value = {
-    participantId, participantType, condition,
+    participantId, participantType, condition, trialPlan,
     surveyMode: condition,
     phase, setPhase,
     isPractice, trialIndex, trialStep,
     trial, type, totalTrials, trialNumber, isLastTrial, progress,
     explanation, fetchedAdvice, isFetchingAdvice,
+    currentIsCorrect, currentErrorDirection,
     initialEstimate, setInitialEstimate,
     initialConfidence, setInitialConfidence,
     verificationResponse, setVerificationResponse,

@@ -4,11 +4,6 @@
  * Scenario type: Expedite or Wait
  * Purpose: Participant decides how much to pay to expedite a shipment.
  * Decision family: Enter a dollar amount to pay for expedited shipping.
- *
- * Protocol values:
- *   EW-1 Fashion Bags: Late delivery ≈ 6%, Correct $181, Incorrect $118
- *   EW-2 Auto Parts:   Late delivery ≈ 8%, Correct $1,106, Incorrect $1,438
- *   EW-3 Electronics:  Late delivery ≈ 10%, Correct $245, Incorrect $172
  */
 
 const SCENARIO_TYPE  = 'expediteOrWait'
@@ -21,8 +16,6 @@ const DECISION_PROMPT = {
   final:
     'Having now seen the AI recommendation, how much would you pay to expedite this shipment (in dollars)?',
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 
 export const expediteOrWaitScenarios = [
 
@@ -63,8 +56,8 @@ export const expediteOrWaitScenarios = [
     ],
 
     recommendation: {
-      correct:   181,
-      incorrect: 118,  // AI underestimates expedite value
+      correct:   181,  // cost-optimal ground truth
+      incorrect: 118,  // AI underestimates expedite value (-35%)
       active:    118,
       optimal:   181,
     },
@@ -81,6 +74,18 @@ export const expediteOrWaitScenarios = [
         'This recommendation assumes a stockout penalty of approximately $1,200 per day delayed. ' +
         'The actual business cost of a delayed shipment in this category is closer to $1,850 per day. ' +
         'If penalty costs match that higher historical figure, paying $181 to expedite is cost-optimal.',
+    },
+
+    correctExplanations: {
+      c0: null,
+      c1: 'Late delivery risk driver weights (6% delay probability, $1,850/day penalty).',
+      c2:
+        'With a 6% probability of supplier delay and stockout penalty costs of $1,850 per delayed day, ' +
+        'paying $181 to expedite minimizes expected disruption costs and protects fashion margins.',
+      c3:
+        'This recommendation reflects a stockout penalty of $1,850/day. ' +
+        'If daily penalty costs were only $1,200, paying $118 would be sufficient, ' +
+        'but higher true penalties make $181 optimal.',
     },
 
     metadata: {
@@ -121,15 +126,15 @@ export const expediteOrWaitScenarios = [
     },
 
     drivers: [
-      { name: 'Late delivery probability', weight: '+0.24' },
-      { name: 'Stockout penalty rate',     weight: '+0.38' },
-      { name: 'Freight shipment value',    weight: '+0.29' },
+      { name: 'Late delivery probability',    weight: '+0.24' },
+      { name: 'Stockout penalty rate',        weight: '+0.38' },
+      { name: 'Freight shipment value',       weight: '+0.29' },
       { name: 'Interstate shipping distance', weight: '+0.17' },
     ],
 
     recommendation: {
-      correct:   1106,
-      incorrect: 1438,  // AI overestimates required expedite payment
+      correct:   1106,  // cost-optimal ground truth
+      incorrect: 1438,  // AI overestimates required expedite payment (+30%)
       active:    1438,
       optimal:   1106,
     },
@@ -146,6 +151,18 @@ export const expediteOrWaitScenarios = [
         'This recommendation assumes expected shipping delays of up to 5 days. Historical ' +
         'carrier data shows actual delays rarely exceed 3 days for this route. ' +
         'Given shorter expected delays, paying $1,106 to expedite is sufficient to mitigate risk.',
+    },
+
+    correctExplanations: {
+      c0: null,
+      c1: 'Moderate delay risk driver weights (8% delay probability, 3-day max delay).',
+      c2:
+        'Carrying an 8% late delivery risk with expected delays of up to 3 days, paying $1,106 secures ' +
+        'priority freight handling and mitigates component shortages without overpaying for express transport.',
+      c3:
+        'This recommendation reflects carrier delays averaging up to 3 days. ' +
+        'If delays regularly reached 5 days, paying $1,438 would be justified, ' +
+        'but 3-day delay history confirms $1,106 is optimal.',
     },
 
     metadata: {
@@ -193,8 +210,8 @@ export const expediteOrWaitScenarios = [
     ],
 
     recommendation: {
-      correct:   245,
-      incorrect: 172,  // AI underestimates delay risk penalty
+      correct:   245,  // cost-optimal ground truth
+      incorrect: 172,  // AI underestimates delay risk penalty (-30%)
       active:    172,
       optimal:   245,
     },
@@ -211,6 +228,18 @@ export const expediteOrWaitScenarios = [
         'This recommendation assumes a delay probability of only 5%. Historical tracking for ' +
         'this high-volume electronic route demonstrates a true delay frequency closer to 10%. ' +
         'Accounting for this higher delay likelihood, a $245 expedite payment minimizes expected total cost.',
+    },
+
+    correctExplanations: {
+      c0: null,
+      c1: 'Higher delay frequency driver weights (10% delay probability).',
+      c2:
+        'Facing a 10% late delivery rate on high-margin consumer electronics, paying $245 for expedited ' +
+        'shipment avoids costly missed launch dates and stockout penalties.',
+      c3:
+        'This recommendation is based on a true 10% delay frequency. ' +
+        'If delay risk were only 5%, an expedite payment of $172 would suffice, ' +
+        'but 10% risk establishes $245 as cost-optimal.',
     },
 
     metadata: {

@@ -1,8 +1,7 @@
 import { connectToDatabase } from '../lib/mongodb.js'
 import TelemetryEvent from '../models/TelemetryEvent.js'
 import TrialResult from '../models/TrialResult.js'
-
-// Import backend scenario lookup for server-side advice resolution
+import ParticipantTrialPlan from '../models/ParticipantTrialPlan.js'
 import { getScenarioById, getExplanation } from '../../src/scenarios/index.js'
 
 /**
@@ -29,10 +28,10 @@ export default async function handler(req, res) {
     return res.status(200).end()
   }
 
-  // ── SERVER-SIDE ADVICE RESOLUTION (SECURE ANCHORING FIX) ────────────────────
-  // When req.method === 'GET', resolve AI advice ONLY AFTER Step 1 submission
+  // ── SERVER-SIDE ADVICE RESOLUTION (LATIN-SQUARE TRIAL PLAN RESOLUTION) ──────
+  // Resolves AI advice and explanation based on participant's assigned counterbalanced plan
   if (req.method === 'GET') {
-    const { trialId, condition } = req.query
+    const { trialId, condition, participantId } = req.query
     if (!trialId) {
       return res.status(400).json({ error: 'Missing trialId parameter' })
     }
@@ -42,16 +41,51 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Scenario not found' })
     }
 
-    const recAmount = typeof scenario.recommendation === 'object'
-      ? (scenario.recommendation.active ?? scenario.recommendation.correct)
-      : scenario.recommendation
+    let isCorrect = false
+    let errorDirection = 'na'
+    let recAmount = null
 
-    const explanation = getExplanation(scenario, condition || 'c0')
+    // Check participant's persisted trial plan if participantId provided
+    if (participantId && !scenario.isPractice) {
+      try {
+        await connectToDatabase()
+        const planDoc = await ParticipantTrialPlan.findOne({ participantId }).lean()
+        if (planDoc && planDoc.trials) {
+          const item = planDoc.trials.find((t) => t.trialId === trialId)
+          if (item) {
+            isCorrect = item.isCorrect
+            errorDirection = item.errorDirection
+            recAmount = item.recommendation
+          }
+        }
+      } catch (err) {
+        console.warn('[telemetry GET] Could not load ParticipantTrialPlan:', err.message)
+      }
+    }
+
+    // Default fallback if not found in plan
+    if (recAmount == null) {
+      if (scenario.isPractice) {
+        isCorrect = true
+        errorDirection = 'na'
+        recAmount = typeof scenario.recommendation === 'object'
+          ? (scenario.recommendation.correct ?? scenario.recommendation.optimal)
+          : scenario.recommendation
+      } else {
+        recAmount = typeof scenario.recommendation === 'object'
+          ? (isCorrect ? scenario.recommendation.correct : (scenario.recommendation.incorrect ?? scenario.recommendation.active))
+          : scenario.recommendation
+      }
+    }
+
+    const explanation = getExplanation(scenario, condition || 'c0', isCorrect)
 
     return res.status(200).json({
       trialId,
       recommendation: recAmount,
       explanation: condition === 'c0' ? null : explanation,
+      isCorrect,
+      errorDirection,
     })
   }
 
@@ -110,6 +144,8 @@ export default async function handler(req, res) {
                 trialId: ev.trialId,
                 scenarioType: p.scenarioType || 'unknown',
                 isPractice: Boolean(p.isPractice),
+                isCorrect: p.isCorrect != null ? Boolean(p.isCorrect) : null,
+                errorDirection: p.errorDirection || null,
                 initialEstimate: Number(p.initialEstimate),
                 aiRecommendation: Number(p.aiRecommendation),
                 finalEstimate: Number(p.finalEstimate),
@@ -129,18 +165,21 @@ export default async function handler(req, res) {
 
     // Bulk insert events for extreme high-throughput performance
     if (eventDocs.length > 0) {
-      await TelemetryEvent.insertMany(eventDocs, { ordered: false }).catch(() => {
-        // Ignore duplicate key errors if retried from offline queue
-      })
+      await TelemetryEvent.insertMany(eventDocs, { ordered: false })
     }
 
+    // Bulk upsert TrialResult analytical records
     if (trialResultsToUpsert.length > 0) {
-      await TrialResult.bulkWrite(trialResultsToUpsert).catch(() => {})
+      await TrialResult.bulkWrite(trialResultsToUpsert, { ordered: false })
     }
 
-    return res.status(200).json({ success: true, count: eventDocs.length })
+    return res.status(200).json({
+      status: 'ok',
+      eventsLogged: eventDocs.length,
+      trialsRecorded: trialResultsToUpsert.length,
+    })
   } catch (error) {
-    console.error('[Telemetry API Error]', error)
+    console.error('[Telemetry API POST Error]', error)
     return res.status(500).json({ error: 'Internal Server Error', message: error.message })
   }
 }

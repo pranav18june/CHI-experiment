@@ -372,7 +372,9 @@ class TelemetryService {
     trialId,
     scenario,
     isPractice,
-    initialEstimate,
+    aiRecommendation: customAiRec,
+    isCorrect,
+    errorDirection,
     finalEstimate,
     finalConfidence,
     cognitiveLoad,
@@ -381,11 +383,14 @@ class TelemetryService {
     totalTrialDwellMs,
   }) {
     const recObj = typeof scenario.recommendation === 'object' ? scenario.recommendation : {}
-    const displayedRec = recObj.active ?? scenario.recommendation
+    const displayedRec = customAiRec ?? (recObj.active ?? scenario.recommendation)
 
     return this.recordEvent(EventType.FINAL_ESTIMATE_SUBMITTED, {
       trialId,
+      scenarioType: scenario.scenarioType || scenario.type,
       isPractice,
+      isCorrect: isCorrect != null ? Boolean(isCorrect) : null,
+      errorDirection: errorDirection || 'na',
       // Required variables for Weight of Advice (WoA) calculation
       initialEstimate: Number(initialEstimate),
       aiRecommendation: Number(displayedRec),

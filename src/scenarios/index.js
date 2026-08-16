@@ -79,11 +79,22 @@ export function getScenarioById(id) {
 }
 
 /**
- * Returns explanation text for a scenario and condition.
+ * Returns explanation text for a scenario, condition, and correctness version.
+ *
+ * @param {object} scenario - Scenario object
+ * @param {string} conditionKey - 'c0' | 'c1' | 'c2' | 'c3'
+ * @param {boolean} [isCorrect=false] - Whether this trial is assigned the cost-optimal version
  */
-export function getExplanation(scenario, conditionKey) {
-  if (!scenario || !scenario.explanations) return null
-  return scenario.explanations[conditionKey] || null
+export function getExplanation(scenario, conditionKey, isCorrect = false) {
+  if (!scenario || conditionKey === 'c0') return null
+
+  if (isCorrect && scenario.correctExplanations) {
+    return scenario.correctExplanations[conditionKey] || null
+  }
+  if (scenario.explanations) {
+    return scenario.explanations[conditionKey] || null
+  }
+  return null
 }
 
 /**

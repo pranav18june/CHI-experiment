@@ -4,14 +4,6 @@
  * Scenario type: Reorder Point
  * Purpose: Determine the inventory level that triggers replenishment.
  * Decision family: Set a dollar-value reorder point.
- *
- * Reorder point formula (for reference only — never shown to participants):
- *   ROP = (average daily demand × average lead time) + safety component
- *
- * Key metadata per scenario (from protocol):
- *   ROP-1  Pet Shop         demand ≈ $296/day   lead time ≈ 11 days  lowest variability
- *   ROP-2  Bed Bath Table   demand ≈ $1,433/day  lead time ≈ 13 days  moderate variability
- *   ROP-3  Office Furniture demand ≈ $376/day    lead time ≈ 21 days  highest variability
  */
 
 const SCENARIO_TYPE  = 'reorderPoint'
@@ -27,14 +19,9 @@ const DECISION_PROMPT = {
     '(inventory value in dollars) would you set for this product category?',
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-
 export const reorderPointScenarios = [
 
   // ── ROP-1 · Pet Shop ─────────────────────────────────────────────────────
-  // Demand ≈ $296/day, lead time ≈ 11 days, lowest lead-time variability.
-  // Lead-time demand base: $296 × 11 = $3,256
-  // Correct ROP $7,507 | Incorrect (shown) $9,909 — AI overestimates variability
   {
     id: 'ROP-1',
     scenarioType: SCENARIO_TYPE,
@@ -64,7 +51,6 @@ export const reorderPointScenarios = [
       },
     },
 
-    // C1: factors influencing lead-time demand variability
     drivers: [
       { name: 'Lead-time variability coefficient', weight: '+0.18' },
       { name: 'Demand variability coefficient',    weight: '+0.12' },
@@ -73,8 +59,8 @@ export const reorderPointScenarios = [
     ],
 
     recommendation: {
-      correct:   7507,
-      incorrect: 9909,   // AI overestimates lead-time variability
+      correct:   7507,   // cost-optimal ground truth
+      incorrect: 9909,   // AI overestimates lead-time variability (+32%)
       active:    9909,
       optimal:   7507,
     },
@@ -94,10 +80,22 @@ export const reorderPointScenarios = [
         'If variability matches the historical level, a lower reorder point of approximately $7,507 would be sufficient.',
     },
 
+    correctExplanations: {
+      c0: null,
+      c1: 'Low lead-time variability driver weights (2.1 day standard deviation).',
+      c2:
+        'With low supplier lead-time variability (averaging 11 days with 2.1-day standard deviation) and steady daily demand ' +
+        'of $296, setting a reorder point of $7,507 cost-effectively prevents stockouts without accumulating excess inventory.',
+      c3:
+        'This recommendation assumes historical lead-time variability of 2.1 days. ' +
+        'If lead-time variability doubled to 4.2 days, an ROP of $9,909 would be needed, ' +
+        'but historical reliability confirms $7,507 is optimal.',
+    },
+
     metadata: {
       demandMeanPerDay:        296,
       averageLeadTimeDays:     11,
-      leadTimeDemandBase:      3256,   // 296 × 11
+      leadTimeDemandBase:      3256,
       variabilityLevel:        'low',
       supplierReliabilityScore: 'TODO_METADATA',
     },
@@ -105,9 +103,6 @@ export const reorderPointScenarios = [
   },
 
   // ── ROP-2 · Bed Bath Table ────────────────────────────────────────────────
-  // Demand ≈ $1,433/day, lead time ≈ 13 days, moderate variability.
-  // Lead-time demand base: $1,433 × 13 = $18,629
-  // Correct ROP $41,112 | Incorrect (shown) $29,601 — AI underestimates demand
   {
     id: 'ROP-2',
     scenarioType: SCENARIO_TYPE,
@@ -145,8 +140,8 @@ export const reorderPointScenarios = [
     ],
 
     recommendation: {
-      correct:   41112,
-      incorrect: 29601,  // AI underestimates average daily demand
+      correct:   41112,  // cost-optimal ground truth
+      incorrect: 29601,  // AI underestimates average daily demand (-28%)
       active:    29601,
       optimal:   41112,
     },
@@ -167,10 +162,22 @@ export const reorderPointScenarios = [
         '$41,112 would be needed.',
     },
 
+    correctExplanations: {
+      c0: null,
+      c1: 'Moderate daily demand driver weights ($1,433/day over 13-day lead time).',
+      c2:
+        'With average daily demand of $1,433 and lead times averaging 13 days (base lead-time demand $18,629), ' +
+        'a reorder point of $41,112 accounts for delivery variability and safeguards high-velocity sales.',
+      c3:
+        'This recommendation is based on true daily demand of $1,433. ' +
+        'If daily demand were only $1,100, an ROP of $29,601 would suffice, ' +
+        'but $1,433/day demand requires $41,112.',
+    },
+
     metadata: {
       demandMeanPerDay:        1433,
       averageLeadTimeDays:     13,
-      leadTimeDemandBase:      18629,  // 1433 × 13
+      leadTimeDemandBase:      18629,
       variabilityLevel:        'moderate',
       supplierReliabilityScore: 'TODO_METADATA',
     },
@@ -178,9 +185,6 @@ export const reorderPointScenarios = [
   },
 
   // ── ROP-3 · Office Furniture ──────────────────────────────────────────────
-  // Demand ≈ $376/day, lead time ≈ 21 days, highest variability.
-  // Lead-time demand base: $376 × 21 = $7,896
-  // Correct ROP $16,569 | Incorrect (shown) $22,368 — AI overestimates variability
   {
     id: 'ROP-3',
     scenarioType: SCENARIO_TYPE,
@@ -218,8 +222,8 @@ export const reorderPointScenarios = [
     ],
 
     recommendation: {
-      correct:   16569,
-      incorrect: 22368,  // AI overestimates lead-time variability
+      correct:   16569,  // cost-optimal ground truth
+      incorrect: 22368,  // AI overestimates lead-time variability (+35%)
       active:    22368,
       optimal:   16569,
     },
@@ -239,10 +243,22 @@ export const reorderPointScenarios = [
         '$16,569 would be appropriate.',
     },
 
+    correctExplanations: {
+      c0: null,
+      c1: 'Long lead-time baseline driver weights (21 days, 5.8 day variability).',
+      c2:
+        'Accounting for an average lead time of 21 days with 5.8-day variability and $376/day demand, ' +
+        'setting a reorder point of $16,569 protects against supply chain delays without ballooning holding costs.',
+      c3:
+        'This recommendation reflects true lead-time variability of 5.8 days. ' +
+        'If variability reached 9.1 days, an ROP of $22,368 would be needed, ' +
+        'but historical data demonstrates $16,569 is optimal.',
+    },
+
     metadata: {
       demandMeanPerDay:        376,
       averageLeadTimeDays:     21,
-      leadTimeDemandBase:      7896,   // 376 × 21
+      leadTimeDemandBase:      7896,
       variabilityLevel:        'high',
       supplierReliabilityScore: 'TODO_METADATA',
     },
