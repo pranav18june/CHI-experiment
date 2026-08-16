@@ -311,11 +311,17 @@ export function StudyProvider({ children }) {
    */
   async function fetchConditionForGroup(pid, groupType) {
     try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 1500)
+
       const response = await fetch('/api/assign-mode', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ participantId: pid, participantType: groupType }),
+        signal: controller.signal,
       })
+      clearTimeout(timeoutId)
+
       if (response.ok) {
         const data = await response.json()
         const assignedCond = data.condition || data.surveyMode
@@ -434,10 +440,29 @@ export function StudyProvider({ children }) {
     setTrialStep(2)
     setStartedAt(Date.now())
 
+    // Practice trials resolve instantly in memory (0ms network delay)
+    if (isPractice) {
+      const recAmount = typeof trial.recommendation === 'object'
+        ? (trial.recommendation.correct ?? trial.recommendation.optimal)
+        : trial.recommendation
+      setFetchedAdvice(recAmount)
+      setCurrentIsCorrect(true)
+      setCurrentErrorDirection('na')
+      setFetchedExplanation(lookupExplanation(trial, condition, true))
+      setIsFetchingAdvice(false)
+      return
+    }
+
     try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 1500)
+
       const response = await fetch(
-        `/api/telemetry?trialId=${encodeURIComponent(trial.id)}&condition=${encodeURIComponent(condition)}&participantId=${encodeURIComponent(participantId)}`
+        `/api/telemetry?trialId=${encodeURIComponent(trial.id)}&condition=${encodeURIComponent(condition)}&participantId=${encodeURIComponent(participantId)}`,
+        { signal: controller.signal }
       )
+      clearTimeout(timeoutId)
+
       if (response.ok) {
         const data = await response.json()
         setFetchedAdvice(data.recommendation)
@@ -445,16 +470,7 @@ export function StudyProvider({ children }) {
         setCurrentIsCorrect(data.isCorrect)
         setCurrentErrorDirection(data.errorDirection)
       } else {
-        const planItem = !isPractice && trialPlan ? trialPlan.find((t) => t.trialId === trial.id) : null
-        const isCorr = isPractice ? true : (planItem ? planItem.isCorrect : false)
-        const errDir = isPractice ? 'na' : (planItem ? planItem.errorDirection : 'high')
-        const fallback = isCorr
-          ? (trial.recommendation.correct ?? trial.recommendation.optimal)
-          : (trial.recommendation.incorrect ?? trial.recommendation.active)
-        setFetchedAdvice(fallback)
-        setCurrentIsCorrect(isCorr)
-        setCurrentErrorDirection(errDir)
-        setFetchedExplanation(lookupExplanation(trial, condition, isCorr))
+        throw new Error('API non-200')
       }
     } catch {
       const planItem = !isPractice && trialPlan ? trialPlan.find((t) => t.trialId === trial.id) : null
