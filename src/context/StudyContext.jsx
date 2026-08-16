@@ -519,6 +519,7 @@ export function StudyProvider({ children }) {
 
   function handleNextPracticeTrial() {
     if (isLastTrial) {
+      telemetry.recordEvent(EventType.ATTENTION_CHECK_PASSED, { round: 'practice', passed: true })
       beginScoredTrials()
     } else {
       setTrialIndex((i) => i + 1)
@@ -527,6 +528,21 @@ export function StudyProvider({ children }) {
       setStartedAt(Date.now())
       setPhase('practice')
     }
+  }
+
+  function handleAttentionCheckFail(selectedResponse) {
+    setIsExcluded(true)
+    telemetry.recordEvent(EventType.ATTENTION_CHECK_FAILED, {
+      round: 'practice',
+      reason: 'ATTENTION_CHECK_FAILED',
+      selectedResponse,
+    })
+    telemetry.recordEvent(EventType.PARTICIPANT_EXCLUDED, {
+      reason: 'ATTENTION_CHECK_FAILED',
+      round: 'practice',
+      selectedResponse,
+    })
+    setPhase('excluded')
   }
 
   function handlePostTaskComplete(responses) {
@@ -556,6 +572,7 @@ export function StudyProvider({ children }) {
     handleComprehensionPass,
     handleComprehensionFail,
     handleComprehensionExclude,
+    handleAttentionCheckFail,
     submitInitialEstimate,
     acknowledgeAI,
     submitVerification,

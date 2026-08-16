@@ -1,14 +1,40 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { formatCurrency } from '../../utils/formatters.js'
 
-// TODO_PRACTICE_FEEDBACK_TEXT: Educational feedback copy for practice mode.
-export function PracticeFeedback({ response, optimal, onNext, isLast }) {
+const ATTENTION_CHOICES = [
+  { value: 'strongly_disagree', label: 'Strongly Disagree' },
+  { value: 'disagree',          label: 'Disagree' },
+  { value: 'neutral',           label: 'Neutral' },
+  { value: 'agree',             label: 'Agree' },
+  { value: 'strongly_agree',    label: 'Strongly Agree' },
+]
+
+/**
+ * PracticeFeedback — Educational feedback component with embedded Attention Check (Protocol §5.11)
+ */
+export function PracticeFeedback({ response, optimal, onNext, onAttentionFail, isLast }) {
   const difference = Math.abs(response - optimal)
   const isExact = difference === 0
   const side = response > optimal ? 'over-ordering' : 'under-ordering'
+  const [attentionResponse, setAttentionResponse] = useState(null)
+
+  function handleContinue() {
+    if (isLast) {
+      if (!attentionResponse) return
+      if (attentionResponse === 'strongly_agree') {
+        onNext()
+      } else {
+        onAttentionFail(attentionResponse)
+      }
+    } else {
+      onNext()
+    }
+  }
+
+  const canContinue = !isLast || attentionResponse !== null
 
   return (
-    <section className="feedback-card">
+    <section className="feedback-card" style={{ maxWidth: 680 }}>
       <p className="eyebrow">Practice feedback</p>
       <h1>Here&rsquo;s how your decision compared.</h1>
       <div className="feedback-values">
@@ -23,7 +49,48 @@ export function PracticeFeedback({ response, optimal, onNext, isLast }) {
         <span>ⓘ</span>
         <p>This feedback reports distance from optimal, not a verdict on the AI. Feedback is only shown during practice rounds.</p>
       </div>
-      <button className="button primary" type="button" onClick={onNext}>
+
+      {isLast && (
+        <div style={{ marginTop: 24, padding: '18px 20px', background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <span style={{ font: '600 11px var(--mono)', color: 'var(--accent-dark)', background: 'var(--accent-light)', padding: '2px 7px', borderRadius: 4 }}>
+              Protocol Attention Check
+            </span>
+          </div>
+          <p style={{ margin: '0 0 14px', fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.5 }}>
+            To confirm you are reading task instructions and feedback carefully before beginning the 12 scored trials,
+            please select <strong>&ldquo;Strongly Agree&rdquo;</strong> for this statement regardless of your actual opinion:
+            <br />
+            <em style={{ display: 'block', marginTop: 4, color: 'var(--muted)' }}>
+              &ldquo;I understand that cost feedback is only provided during practice rounds and will not be displayed during the scored trials.&rdquo;
+            </em>
+          </p>
+          <div className="choice-list" style={{ margin: 0, gap: 6 }}>
+            {ATTENTION_CHOICES.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                className={attentionResponse === opt.value ? 'choice selected' : 'choice'}
+                onClick={() => setAttentionResponse(opt.value)}
+                style={{ padding: '10px 14px', fontSize: 13 }}
+              >
+                <span style={{ width: 20, height: 20, fontSize: 10 }}>
+                  {attentionResponse === opt.value ? '✓' : ''}
+                </span>
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <button
+        className="button primary full"
+        type="button"
+        disabled={!canContinue}
+        onClick={handleContinue}
+        style={{ marginTop: 24 }}
+      >
         {isLast ? 'Begin scored trials' : 'Next practice trial'} <span>→</span>
       </button>
     </section>
@@ -67,13 +134,13 @@ export function Complete({ participantId }) {
         <h1>Thank you for your time.</h1>
         <p className="lede">Your responses have been recorded for this session.</p>
         <div className="consent-placeholder">
-          <strong>TODO_COMPLETION_INSTRUCTIONS</strong>
+          <strong>TODO_COMPLETION_COPY</strong>
           <span>
-            Participant compensation, course-credit redemption, or next-step instructions
-            will appear here.
+            Participant credit / compensation codes, survey platform redirects, and closing
+            instructions will be configured here based on the final recruitment channel.
           </span>
         </div>
-        <p className="participant-code">Session code: {participantId}</p>
+        <p className="participant-code">Confirmation code: {participantId}</p>
       </section>
     </main>
   )

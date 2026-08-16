@@ -6,8 +6,8 @@ import { PracticeFeedback } from '../components/pages/PostTrialPages.jsx'
 
 /**
  * PracticePage — handles both the practice trial flow and the inter-trial
- * feedback screen. Both sub-states share the /practice URL; the phase value
- * ('practice' vs 'practice-feedback') controls which view is rendered.
+ * feedback screen. On the final practice trial, embeds an attention check
+ * that routes to the pre-registered exclusion path upon failure (Protocol §5.11).
  */
 export default function PracticePage() {
   const {
@@ -22,6 +22,7 @@ export default function PracticePage() {
     cognitiveLoad, setCognitiveLoad,
     submitInitialEstimate, acknowledgeAI, submitVerification, submitFinalEstimate,
     handleNextPracticeTrial,
+    handleAttentionCheckFail,
   } = useStudyContext()
 
   if (!trial || !type) return null
@@ -74,6 +75,7 @@ export default function PracticePage() {
               : trial.optimal
           }
           onNext={handleNextPracticeTrial}
+          onAttentionFail={handleAttentionCheckFail}
           isLast={trialNumber === totalTrials}
         />
       )}
