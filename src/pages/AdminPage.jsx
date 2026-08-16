@@ -16,6 +16,7 @@ const PHASE_LABELS = {
   debrief:            'Debrief',
   complete:           'Complete',
   excluded:           'Excluded',
+  abandoned:          'Abandoned',
   unknown:            '—',
 }
 
@@ -63,13 +64,15 @@ function ConditionBadge({ condition }) {
   return <span className={`adm-badge adm-badge--${key}`}>{label}</span>
 }
 
-function StatusBadge({ phase, isComplete }) {
-  if (isComplete)
+function StatusBadge({ phase, isComplete, status }) {
+  if (status === 'abandoned' || phase === 'abandoned')
+    return <span className="adm-badge" style={{ background: '#f3f4f6', color: '#6b7280', borderColor: '#e5e7eb' }}>Abandoned</span>
+  if (isComplete || status === 'completed')
     return <span className="adm-badge adm-badge--complete">Complete</span>
-  if (phase === 'excluded')
+  if (phase === 'excluded' || status === 'excluded')
     return <span className="adm-badge" style={{ background: '#fee2e2', color: '#991b1b', borderColor: '#fecaca' }}>Excluded</span>
-  if (phase === 'consent' || phase === 'unknown')
-    return <span className="adm-badge adm-badge--neutral">Not started</span>
+  if (phase === 'consent' || phase === 'unknown' || status === 'assigned')
+    return <span className="adm-badge adm-badge--neutral">Assigned</span>
   return <span className="adm-badge adm-badge--active">In progress</span>
 }
 
@@ -158,8 +161,10 @@ export default function AdminPage() {
 
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [actionLoading, setActionLoading] = useState(false)
   const [fetchError, setFetchError] = useState(null)
   const [lastRefreshed, setLastRefreshed] = useState(null)
+  const [feedbackMsg, setFeedbackMsg] = useState(null)
 
   // Table controls
   const [sortField, setSortField] = useState('sessionStarted')
@@ -210,6 +215,94 @@ export default function AdminPage() {
     return () => clearInterval(id)
   }, [isAuthed, fetchData])
 
+  // ── Data Export Trigger ─────────────────────────────────────────────────────
+  async function handleExport(format = 'csv') {
+    setActionLoading(true)
+    try {
+      const res = await fetch(`/api/admin/export?format=${format}`, {
+        headers: { 'x-admin-secret': secret },
+      })
+      if (!res.ok) throw new Error(`Export failed HTTP ${res.status}`)
+
+      if (format === 'csv') {
+        const blob = await res.blob()
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `scdrp_deidentified_export_${new Date().toISOString().slice(0, 10)}.csv`
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        window.URL.revokeObjectURL(url)
+      } else {
+        const json = await res.json()
+        const blob = new Blob([JSON.stringify(json, null, 2)], { type: 'application/json' })
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `scdrp_deidentified_export_${new Date().toISOString().slice(0, 10)}.json`
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        window.URL.revokeObjectURL(url)
+      }
+      setFeedbackMsg(`✓ De-identified ${format.toUpperCase()} dataset downloaded successfully.`)
+      setTimeout(() => setFeedbackMsg(null), 5000)
+    } catch (err) {
+      alert(`Export error: ${err.message}`)
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  // ── Reclaim Abandoned Trigger ───────────────────────────────────────────────
+  async function handleReclaimAbandoned() {
+    if (!window.confirm('Reclaim slots for participants who were assigned > 2 hours ago without completing trials?')) {
+      return
+    }
+    setActionLoading(true)
+    try {
+      const res = await fetch('/api/admin/reclaim-abandoned', {
+        method: 'POST',
+        headers: { 'x-admin-secret': secret, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ abandonmentHours: 2 }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      setFeedbackMsg(`✓ Reclaimed ${data.reclaimedCount} abandoned slots. Balancing counters reconciled.`)
+      setTimeout(() => setFeedbackMsg(null), 6000)
+      fetchData()
+    } catch (err) {
+      alert(`Reclaim error: ${err.message}`)
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  // ── Participant Withdrawal Trigger ──────────────────────────────────────────
+  async function handleWithdrawParticipant(pid) {
+    const reason = window.prompt(`Are you sure you want to purge all records for participant ${pid}? Enter reason:`, 'IRB Participant Withdrawal')
+    if (!reason) return
+
+    setActionLoading(true)
+    try {
+      const res = await fetch('/api/admin/withdraw', {
+        method: 'POST',
+        headers: { 'x-admin-secret': secret, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ participantId: pid, reason }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      setFeedbackMsg(`✓ Participant ${pid} purged across all collections (${JSON.stringify(data.recordsPurged)}).`)
+      setTimeout(() => setFeedbackMsg(null), 6000)
+      fetchData()
+    } catch (err) {
+      alert(`Withdrawal error: ${err.message}`)
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
   // ── Sorting & filtering ─────────────────────────────────────────────────────
   const rows = useMemo(() => {
     if (!data?.participants) return []
@@ -217,9 +310,10 @@ export default function AdminPage() {
 
     if (filterType !== 'all')      list = list.filter((p) => p.participantType === filterType)
     if (filterCondition !== 'all') list = list.filter((p) => p.condition === filterCondition)
-    if (filterStatus === 'complete')   list = list.filter((p) => p.isComplete)
+    if (filterStatus === 'complete')   list = list.filter((p) => p.isComplete || p.status === 'completed')
     if (filterStatus === 'active')     list = list.filter((p) => !p.isComplete && p.trialsCompleted > 0)
-    if (filterStatus === 'not-started')list = list.filter((p) => p.trialsCompleted === 0 && !p.isComplete)
+    if (filterStatus === 'assigned')   list = list.filter((p) => p.trialsCompleted === 0 && !p.isComplete && p.status !== 'abandoned')
+    if (filterStatus === 'abandoned')  list = list.filter((p) => p.status === 'abandoned')
     if (search) {
       const q = search.toLowerCase()
       list = list.filter((p) => p.participantId?.toLowerCase().includes(q))
@@ -263,7 +357,7 @@ export default function AdminPage() {
           <span className="mark" />Decision Study
           <span className="adm-topbar__tag">Admin</span>
         </div>
-        <div className="adm-topbar__right">
+        <div className="adm-topbar__right" style={{ gap: 8 }}>
           {loading && <span className="adm-loading-dot" title="Refreshing…" />}
           {lastRefreshed && (
             <span className="adm-last-refresh">
@@ -272,7 +366,34 @@ export default function AdminPage() {
           )}
           <button
             className="button"
-            style={{ minHeight: 32, padding: '0 12px', fontSize: 13 }}
+            style={{ minHeight: 32, padding: '0 10px', fontSize: 12.5 }}
+            onClick={() => handleExport('csv')}
+            disabled={actionLoading || loading}
+            title="Download de-identified dataset in CSV format"
+          >
+            📥 Export CSV
+          </button>
+          <button
+            className="button"
+            style={{ minHeight: 32, padding: '0 10px', fontSize: 12.5 }}
+            onClick={() => handleExport('json')}
+            disabled={actionLoading || loading}
+            title="Download de-identified dataset with manifest in JSON format"
+          >
+            📥 Export JSON
+          </button>
+          <button
+            className="button"
+            style={{ minHeight: 32, padding: '0 10px', fontSize: 12.5 }}
+            onClick={handleReclaimAbandoned}
+            disabled={actionLoading || loading}
+            title="Reclaim inactive slots and reconcile counters"
+          >
+            ↺ Reclaim Abandoned
+          </button>
+          <button
+            className="button"
+            style={{ minHeight: 32, padding: '0 10px', fontSize: 12.5 }}
             onClick={() => fetchData()}
             disabled={loading}
           >
@@ -290,6 +411,11 @@ export default function AdminPage() {
       <div className="adm-content">
         {fetchError && (
           <div className="adm-error-banner">⚠ Could not fetch data: {fetchError}</div>
+        )}
+        {feedbackMsg && (
+          <div style={{ background: '#ecfdf5', color: '#065f46', border: '1px solid #a7f3d0', padding: '10px 16px', borderRadius: 6, marginBottom: 16, fontSize: 13.5, fontWeight: 500 }}>
+            {feedbackMsg}
+          </div>
         )}
 
         {/* ── KPI row ── */}
@@ -487,7 +613,8 @@ export default function AdminPage() {
             <option value="all">All statuses</option>
             <option value="complete">Complete</option>
             <option value="active">In progress</option>
-            <option value="not-started">Not started</option>
+            <option value="assigned">Assigned</option>
+            <option value="abandoned">Abandoned</option>
           </select>
           <span className="adm-row-count">{rows.length} participant{rows.length !== 1 ? 's' : ''}</span>
         </section>
@@ -516,15 +643,13 @@ export default function AdminPage() {
                 <th onClick={() => toggleSort('avgWoA')} className="adm-th--sortable">
                   Avg WoA <SortIcon field="avgWoA" sortField={sortField} sortDir={sortDir} />
                 </th>
-                <th onClick={() => toggleSort('avgConfidence')} className="adm-th--sortable">
-                  Confidence <SortIcon field="avgConfidence" sortField={sortField} sortDir={sortDir} />
-                </th>
                 <th onClick={() => toggleSort('sessionStarted')} className="adm-th--sortable">
                   Started <SortIcon field="sessionStarted" sortField={sortField} sortDir={sortDir} />
                 </th>
                 <th onClick={() => toggleSort('lastSeen')} className="adm-th--sortable">
                   Last seen <SortIcon field="lastSeen" sortField={sortField} sortDir={sortDir} />
                 </th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -544,7 +669,7 @@ export default function AdminPage() {
                   <td>
                     <span className="adm-type">{p.participantType || '—'}</span>
                   </td>
-                  <td><StatusBadge phase={p.currentPhase} isComplete={p.isComplete} /></td>
+                  <td><StatusBadge phase={p.currentPhase} isComplete={p.isComplete} status={p.status} /></td>
                   <td>
                     <ProgressBar value={p.progress} />
                     <span className="adm-trial-count">{p.trialsCompleted}/{p.totalTrials}</span>
@@ -557,9 +682,19 @@ export default function AdminPage() {
                     ) : '—'}
                   </td>
                   <td className="adm-num">{p.avgWoA != null ? p.avgWoA.toFixed(3) : '—'}</td>
-                  <td className="adm-num">{p.avgConfidence != null ? p.avgConfidence.toFixed(1) : '—'}</td>
                   <td className="adm-date">{fmtDate(p.sessionStarted)}</td>
                   <td className="adm-date">{timeAgo(p.lastSeen)}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="quiet-button"
+                      style={{ color: '#b91c1c', fontSize: 11.5, padding: '2px 6px' }}
+                      onClick={() => handleWithdrawParticipant(p.participantId)}
+                      title="Purge participant data across all collections (IRB compliance)"
+                    >
+                      Withdraw
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -567,7 +702,7 @@ export default function AdminPage() {
         </div>
 
         <p className="adm-footer">
-          Auto-refreshes every 60 s · Data from MongoDB · 2×4 Factorial between-subjects design
+          Auto-refreshes every 60 s · Data from MongoDB · 2×4 Factorial between-subjects design · Complies with IRB Data Protection Standards
         </p>
       </div>
     </div>

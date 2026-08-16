@@ -12,6 +12,8 @@
  *   4. Sample-Wide Balance: 4 complementary schedule pairs (8 total) guarantee that across
  *      the sample, every scenario instance (e.g. SS-1, NV-2) is shown as correct to ~50%
  *      of participants and incorrect to ~50%.
+ *   5. Immutable Stimulus Snapshotting: Captures exact stimulus wording, values, and a content
+ *      hash to ensure reproducibility across protocol and scenario text updates.
  */
 
 export const SCORED_TRIAL_ORDER = [
@@ -56,10 +58,20 @@ export const CORRECTNESS_SCHEDULES = [
   [true,  true,  false, true,  false, false, true,  true,  false, false, true,  false], // S7 (Complement of S6)
 ]
 
+function computeStimulusHash(str) {
+  let hash = 0
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i)
+    hash = ((hash << 5) - hash) + char
+    hash |= 0
+  }
+  return 'sh_' + Math.abs(hash).toString(16)
+}
+
 /**
- * Returns a complete 12-trial plan for a given schedule index and scenarios lookup.
+ * Returns a complete 12-trial plan for a given schedule index, condition, and scenarios lookup.
  */
-export function generateParticipantTrialPlan(scheduleIndex, getScenarioFn) {
+export function generateParticipantTrialPlan(scheduleIndex, getScenarioFn, condition = 'c0') {
   const schedule = CORRECTNESS_SCHEDULES[scheduleIndex % CORRECTNESS_SCHEDULES.length]
 
   return SCORED_TRIAL_ORDER.map((trialId, orderIndex) => {
@@ -67,12 +79,47 @@ export function generateParticipantTrialPlan(scheduleIndex, getScenarioFn) {
     const errorDirection = isCorrect ? 'na' : (SCENARIO_ERROR_DIRECTIONS[trialId] || 'na')
 
     const scenario = getScenarioFn ? getScenarioFn(trialId) : null
-    let recommendation = null
-    if (scenario && scenario.recommendation) {
+    let recommendation = 0
+    let groundTruthOptimal = 0
+    let title = ''
+    let decisionPrompt = ''
+    let context = ''
+    let explanationText = null
+
+    if (scenario) {
+      groundTruthOptimal = scenario.groundTruthOptimal ??
+        (typeof scenario.recommendation === 'object'
+          ? (scenario.recommendation.correct ?? scenario.recommendation.optimal)
+          : scenario.recommendation)
+
       recommendation = isCorrect
-        ? (scenario.recommendation.correct ?? scenario.recommendation.optimal)
-        : (scenario.recommendation.incorrect ?? scenario.recommendation.active)
+        ? (scenario.recommendation?.correct ?? scenario.recommendation?.optimal ?? groundTruthOptimal)
+        : (scenario.recommendation?.incorrect ?? scenario.recommendation?.active ?? groundTruthOptimal)
+
+      title = scenario.title || ''
+      decisionPrompt = scenario.decisionPrompt || scenario.prompt || ''
+      context = scenario.context || ''
+
+      if (condition !== 'c0' && scenario.explanations) {
+        const explObj = scenario.explanations[condition]
+        if (explObj) {
+          explanationText = isCorrect ? (explObj.correct ?? explObj) : (explObj.incorrect ?? explObj.correct ?? explObj)
+        }
+      }
     }
+
+    const rawPayload = JSON.stringify({
+      trialId,
+      condition,
+      isCorrect,
+      errorDirection,
+      recommendation,
+      groundTruthOptimal,
+      title,
+      decisionPrompt,
+      explanationText,
+    })
+    const stimulusContentHash = computeStimulusHash(rawPayload)
 
     return {
       trialId,
@@ -80,6 +127,12 @@ export function generateParticipantTrialPlan(scheduleIndex, getScenarioFn) {
       isCorrect,
       errorDirection,
       recommendation,
+      groundTruthOptimal,
+      title,
+      decisionPrompt,
+      context,
+      explanation: explanationText,
+      stimulusContentHash,
     }
   })
 }

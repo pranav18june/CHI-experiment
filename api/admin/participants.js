@@ -50,6 +50,7 @@ export default async function handler(req, res) {
       modeMap[r.participantId] = {
         condition: r.condition || r.surveyMode || 'c0',
         participantType: r.participantType || 'novice',
+        status: r.status || 'assigned',
       }
     }
 
@@ -139,6 +140,7 @@ export default async function handler(req, res) {
         participantId:            pid,
         condition:                cond,
         participantType:          type,
+        status:                   modeRec.status || (phase === 'complete' ? 'completed' : (phase === 'excluded' ? 'excluded' : (tc > 0 ? 'in_progress' : 'assigned'))),
         scheduleIndex:            sIdx,
         sessionStarted:           session.sessionStarted  || null,
         lastSeen:                 session.lastSeen        || null,

@@ -31,10 +31,10 @@ The following empirical parameters were implemented as working placeholders and 
 
 ## 🛠️ Tech Stack & Architecture
 
-- **Frontend:** React 18, React Router 7, Vite 7, Custom Vanilla CSS token system ($<24\text{ kB}$)
+- **Frontend:** React 18, React Router 7, Vite 7, Accessible Vanilla CSS token system ($<24\text{ kB}$)
 - **Backend:** Node.js Serverless Functions (Vercel API Gateway)
-- **Database:** MongoDB Atlas with Mongoose ODM (Multi-collection: `ModeCounter`, `ParticipantMode`, `ParticipantTrialPlan`, `TelemetryEvent`, `TrialResult`, `PostTaskResponse`)
-- **Telemetry:** Resilient client-side queueing (`localStorage`) with keepalive transport and batch database insertion
+- **Database:** MongoDB Atlas with Mongoose ODM (Strict schemas: `ModeCounter`, `ParticipantMode`, `ParticipantTrialPlan`, `TelemetryEvent`, `TrialResult`, `PostTaskResponse`)
+- **Telemetry & Resilience:** Client-side queue (`localStorage`) with keepalive transport, server-side range validation, idempotent `$set` bulk upserts, and stimulus content snapshotting
 
 ---
 
@@ -43,20 +43,24 @@ The following empirical parameters were implemented as working placeholders and 
 ```
 decision-study-platform/
 ├── api/                        # Serverless backend endpoints
-│   ├── admin/participants.js   # Real-time admin monitoring & 2x4 matrix aggregation
+│   ├── admin/
+│   │   ├── export.js           # De-identified CSV/JSON dataset export API with manifest
+│   │   ├── participants.js     # Real-time admin monitoring & 2x4 matrix aggregation
+│   │   ├── reclaim-abandoned.js# Inactive slot reclamation & ModeCounter reconciler
+│   │   └── withdraw.js         # IRB-compliant participant data purge API
 │   ├── lib/mongodb.js          # Cached MongoDB connection pool
-│   ├── models/                 # Mongoose schema definitions
+│   ├── models/                 # Mongoose schema definitions with strict enums
 │   │   ├── ModeCounter.js      # 2x4 Factorial condition & schedule counter
-│   │   ├── ParticipantMode.js  # Participant condition records
-│   │   ├── ParticipantTrialPlan.js # Latin-square trial plans
-│   │   ├── PostTaskResponse.js # Post-task questionnaire responses
+│   │   ├── ParticipantMode.js  # Participant condition records & lifecycle status
+│   │   ├── ParticipantTrialPlan.js # Latin-square trial plans with stimulus snapshots
+│   │   ├── PostTaskResponse.js # Post-task questionnaire responses & version stamps
 │   │   ├── TelemetryEvent.js   # Raw interaction event stream
-│   │   └── TrialResult.js      # Scored trial outcomes (WoA, Regret)
+│   │   └── TrialResult.js      # Scored trial outcomes (WoA, Regret, Enums)
 │   ├── assign-mode.js          # Min-count stratified condition & schedule assignment
-│   └── telemetry/index.js      # Batch telemetry ingestion & AI advice resolution
+│   └── telemetry/index.js      # Server-side validation, advice resolution, & bulk ingestion
 ├── src/                        # React client SPA
 │   ├── components/
-│   │   ├── common/             # NumberLineInput, Scale, ChoiceList, Header
+│   │   ├── common/             # NumberLineInput (WCAG AA), Scale, ChoiceList, Header
 │   │   ├── pages/              # Orientation, PostTaskForm, PostTrialPages
 │   │   ├── questionnaires/     # NasaTlx, NumeracyScale, DomainExperience
 │   │   ├── training/           # 4-Item Novice ComprehensionCheck (Appendix C.1)
@@ -67,7 +71,7 @@ decision-study-platform/
 │   ├── routes/StudyRouter.jsx  # URL routing table
 │   ├── scenarios/              # 14 Scenario definitions & ground truth
 │   ├── services/               # Validation rules & input normalizers
-│   ├── utils/                  # Counterbalance planner, formatters
+│   ├── utils/                  # Counterbalance planner, formatters, hash generator
 │   └── telemetry.js            # Client-side telemetry service & offline queue
 ├── package.json
 └── vite.config.js
@@ -90,7 +94,9 @@ npm run build
 
 ---
 
-## 🔐 Security Scope & Tradeoffs Note
+## 🔐 Security & Data Governance
 
-- **Internal Laboratory Deployment:** As a dedicated behavioural science platform deployed in controlled laboratory and proctored research settings, complex multi-tenant JWT/RBAC frameworks and IP rate-limiting are omitted by deliberate design to minimize operational overhead.
-- **Admin Access:** Protected by header authentication (`x-admin-secret`) matched against server-side environment secrets.
+- **Internal Laboratory Scope:** Rate limiting and complex multi-tenant JWT auth are omitted by design as an internal academic tool. Header-based secret verification (`x-admin-secret`) provides the administrative boundary.
+- **De-Identified Data Export (`/api/admin/export`):** Provides reproducible CSV/JSON research dumps with an immutable manifest header, stripping identifiable parameters.
+- **Participant Withdrawal Path (`/api/admin/withdraw`):** Complies with IRB standards by purging records across all 5 database collections and adjusting active cell counters.
+- **MongoDB Atlas Backup & PITR Policy:** Production Atlas deployments require **Continuous Cloud Backups with 7-Day Point-in-Time Recovery (PITR)** and 30-day daily snapshot retention to ensure data durability across the study lifecycle.

@@ -4,6 +4,7 @@ import ParticipantTrialPlan from './models/ParticipantTrialPlan.js'
 import ModeCounter from './models/ModeCounter.js'
 import { getScenarioById } from '../src/scenarios/index.js'
 import { generateParticipantTrialPlan, CORRECTNESS_SCHEDULES } from '../src/utils/counterbalance.js'
+import { CONFIG } from '../src/config/index.js'
 
 export const CONDITIONS = ['c0', 'c1', 'c2', 'c3']
 export const PARTICIPANT_TYPES = ['novice', 'expert']
@@ -20,7 +21,8 @@ export const SCHEDULE_KEYS = ['s0', 's1', 's2', 's3', 's4', 's5', 's6', 's7']
  *      participant's own expertise group (Novice vs. Expert), breaking ties uniformly at random.
  *   2. Atomically assigns a counterbalanced 12-trial correctness schedule (s0 to s7) using
  *      min-count balancing within the participant's own expertise group, breaking ties uniformly at random.
- *   3. Persists both ParticipantMode and ParticipantTrialPlan in MongoDB atomically.
+ *   3. Snapshots the exact stimulus text, values, ground truth, and content hash into ParticipantTrialPlan.
+ *   4. Persists both ParticipantMode (status: 'assigned') and ParticipantTrialPlan in MongoDB atomically.
  */
 export default async function handler(req, res) {
   // CORS headers
@@ -59,6 +61,7 @@ export default async function handler(req, res) {
         surveyMode: condition,
         participantType,
         participantId,
+        status: existing.status || 'assigned',
         trialPlan: planDoc ? planDoc.trials : null,
       })
     } catch (error) {
@@ -93,6 +96,7 @@ export default async function handler(req, res) {
         surveyMode: condition,
         participantType: type,
         participantId,
+        status: existing.status || 'assigned',
         trialPlan: planDoc ? planDoc.trials : null,
         alreadyAssigned: true,
       })
@@ -152,8 +156,8 @@ export default async function handler(req, res) {
       { upsert: true }
     )
 
-    // ── Step 5: Generate & Persist Participant Trial Plan ────────────────────
-    const trialsPlan = generateParticipantTrialPlan(scheduleIndex, getScenarioById)
+    // ── Step 5: Generate & Persist Participant Trial Plan with Stimulus Snapshot ──
+    const trialsPlan = generateParticipantTrialPlan(scheduleIndex, getScenarioById, chosenCondition)
 
     await ParticipantTrialPlan.findOneAndUpdate(
       { participantId },
@@ -163,6 +167,8 @@ export default async function handler(req, res) {
           participantType: group,
           condition: chosenCondition,
           scheduleIndex,
+          protocolVersion: CONFIG.STUDY_VERSION || '4.1.0',
+          applicationVersion: CONFIG.APPLICATION_VERSION || '0.2.0',
           trials: trialsPlan,
           assignedAt: new Date(),
         },
@@ -170,7 +176,7 @@ export default async function handler(req, res) {
       { upsert: true, new: true }
     )
 
-    // ── Step 6: Persist participant mode record ──────────────────────────────
+    // ── Step 6: Persist participant mode record (status: 'assigned') ──────────
     const record = await ParticipantMode.findOneAndUpdate(
       { participantId },
       {
@@ -178,7 +184,11 @@ export default async function handler(req, res) {
           participantId,
           participantType: group,
           condition: chosenCondition,
+          status: 'assigned',
+          protocolVersion: CONFIG.STUDY_VERSION || '4.1.0',
+          applicationVersion: CONFIG.APPLICATION_VERSION || '0.2.0',
           assignedAt: new Date(),
+          lastActiveAt: new Date(),
         },
       },
       { upsert: true, new: true }
@@ -190,6 +200,7 @@ export default async function handler(req, res) {
       surveyMode: assigned,
       participantType: group,
       participantId,
+      status: 'assigned',
       scheduleIndex,
       trialPlan: trialsPlan,
     })

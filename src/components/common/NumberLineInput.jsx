@@ -58,8 +58,10 @@ export function getScenarioScaleBounds(scenario) {
 /**
  * NumberLineInput — Interactive Protocol §5.9 Number-Line & Slider Input
  *
- * Replaces plain numeric text fields with a horizontal number line anchored
- * to the scenario's historical baseline.
+ * Full WCAG 2.1 AA Accessible component:
+ *   - Keyboard accessible (Arrow keys, Home, End, PageUp, PageDown)
+ *   - ARIA labelled, valuetext formatted, and described by historical baseline
+ *   - Synchronized direct numeric text input with inputMode="numeric"
  *
  * Props:
  *   - id: Element ID
@@ -79,6 +81,8 @@ export default function NumberLineInput({
 }) {
   const generatedId = useId()
   const inputId = id || generatedId
+  const sliderId = `${inputId}-slider`
+  const anchorDescId = `${inputId}-anchor-desc`
 
   const { min, max, step, anchor } = useMemo(() => getScenarioScaleBounds(scenario), [scenario])
 
@@ -96,7 +100,7 @@ export default function NumberLineInput({
     }
   }, [numericVal])
 
-  // Slider slider position (percentage 0 to 100)
+  // Slider position (percentage 0 to 100)
   const currentPct = useMemo(() => {
     if (numericVal === null) return 50
     const clamped = Math.max(min, Math.min(max, numericVal))
@@ -114,6 +118,32 @@ export default function NumberLineInput({
     onChange(e.target.value)
   }
 
+  // Keyboard navigation enhancement
+  function handleKeyDown(e) {
+    let current = numericVal ?? min + (max - min) / 2
+    let next = null
+
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
+      next = Math.max(min, current - step)
+    } else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
+      next = Math.min(max, current + step)
+    } else if (e.key === 'PageDown') {
+      next = Math.max(min, current - step * 5)
+    } else if (e.key === 'PageUp') {
+      next = Math.min(max, current + step * 5)
+    } else if (e.key === 'Home') {
+      next = min
+    } else if (e.key === 'End') {
+      next = max
+    }
+
+    if (next !== null) {
+      e.preventDefault()
+      setHasInteracted(true)
+      onChange(String(next))
+    }
+  }
+
   // Generate 5 evenly spaced tick marks for the scale
   const ticks = useMemo(() => {
     const count = 5
@@ -125,12 +155,16 @@ export default function NumberLineInput({
     return list
   }, [min, max])
 
+  const formattedValueText = numericVal !== null
+    ? `$${numericVal.toLocaleString()}`
+    : 'No estimate set'
+
   return (
     <div className="number-line-component">
       {/* ── Direct Numeric Input Row ── */}
       <div className="number-line-header">
         <div className="money-input" style={{ width: '100%' }}>
-          <span>$</span>
+          <span aria-hidden="true">$</span>
           <input
             id={inputId}
             type="text"
@@ -140,12 +174,18 @@ export default function NumberLineInput({
             placeholder={placeholder}
             autoComplete="off"
             autoFocus={autoFocus}
-            aria-valuemin={min}
-            aria-valuemax={max}
-            aria-valuenow={numericVal ?? undefined}
+            aria-label="Direct numeric input for decision estimate"
+            aria-describedby={anchor !== null ? anchorDescId : undefined}
           />
         </div>
       </div>
+
+      {/* ── Screen-reader Baseline Description ── */}
+      {anchor !== null && (
+        <span id={anchorDescId} className="sr-only" style={{ display: 'none' }}>
+          Historical baseline for this product is {formatCurrency(anchor)}.
+        </span>
+      )}
 
       {/* ── Interactive Number Line Track ── */}
       <div className="number-line-track-wrap">
@@ -155,6 +195,7 @@ export default function NumberLineInput({
             <div
               className="number-line-fill"
               style={{ width: `${Math.max(0, Math.min(100, currentPct))}%` }}
+              aria-hidden="true"
             />
           )}
 
@@ -164,26 +205,35 @@ export default function NumberLineInput({
               className="number-line-anchor"
               style={{ left: `${((anchor - min) / (max - min)) * 100}%` }}
               title={`Historical baseline: ${formatCurrency(anchor)}`}
+              aria-hidden="true"
             >
               <span className="number-line-anchor-label">Baseline</span>
             </div>
           )}
 
-          {/* Hidden Range Input for Native Drag/Touch/Keyboard Accessibility */}
+          {/* Fully Accessible Native Range Slider */}
           <input
+            id={sliderId}
             type="range"
             min={min}
             max={max}
             step={step}
             value={numericVal ?? min + (max - min) / 2}
             onChange={handleSliderChange}
+            onKeyDown={handleKeyDown}
             className="number-line-slider"
-            aria-label="Interactive estimate number line"
+            role="slider"
+            aria-label="Interactive decision estimate number-line slider"
+            aria-valuemin={min}
+            aria-valuemax={max}
+            aria-valuenow={numericVal ?? min + (max - min) / 2}
+            aria-valuetext={formattedValueText}
+            aria-describedby={anchor !== null ? anchorDescId : undefined}
           />
         </div>
 
         {/* ── Ticks and Bounds Labels ── */}
-        <div className="number-line-ticks">
+        <div className="number-line-ticks" aria-hidden="true">
           {ticks.map((t, idx) => (
             <div
               key={idx}

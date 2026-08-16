@@ -2,9 +2,10 @@ import { connectToDatabase } from '../lib/mongodb.js'
 import TelemetryEvent from '../models/TelemetryEvent.js'
 import TrialResult from '../models/TrialResult.js'
 import PostTaskResponse from '../models/PostTaskResponse.js'
+import ParticipantMode from '../models/ParticipantMode.js'
 import ParticipantTrialPlan from '../models/ParticipantTrialPlan.js'
 import { getScenarioById, getExplanation } from '../../src/scenarios/index.js'
-import { STOCKOUT_PENALTY_WEIGHT, HOLDING_PENALTY_WEIGHT } from '../../src/config/index.js'
+import { STOCKOUT_PENALTY_WEIGHT, HOLDING_PENALTY_WEIGHT, CONFIG } from '../../src/config/index.js'
 
 /**
  * Helper to compute Weight of Advice (WoA).
@@ -14,6 +15,29 @@ function calculateWoA(initial, advice, final) {
   if (advice === initial) return null
   const woa = (final - initial) / (advice - initial)
   return Number.isFinite(woa) ? Math.round(woa * 10000) / 10000 : null
+}
+
+/**
+ * Server-Side Range / Plausibility Validation (Item 3)
+ * Enforces scenario-specific bounds to reject non-finite, negative, or absurd values.
+ */
+function validateEstimateBounds(trialId, value) {
+  if (value == null) return { valid: false, reason: 'Value is null/undefined' }
+  const num = Number(value)
+  if (!Number.isFinite(num)) return { valid: false, reason: 'Value is non-finite' }
+  if (num < 0) return { valid: false, reason: 'Value cannot be negative' }
+
+  const scenario = getScenarioById(trialId)
+  if (!scenario) return { valid: true, sanitized: num }
+
+  const baseline = scenario.historicalDemand?.mean || scenario.groundTruthOptimal || 10000
+  const maxPlausible = Math.max(baseline * 5, 2000000) // Hard plausible ceiling
+
+  if (num > maxPlausible) {
+    return { valid: false, reason: `Value ${num} exceeds maximum plausible threshold ${maxPlausible}` }
+  }
+
+  return { valid: true, sanitized: num }
 }
 
 /**
@@ -76,6 +100,7 @@ export default async function handler(req, res) {
     let isCorrect = false
     let errorDirection = 'na'
     let recAmount = null
+    let explanationText = null
 
     // Check participant's persisted trial plan if participantId provided
     if (participantId && !scenario.isPractice) {
@@ -88,6 +113,7 @@ export default async function handler(req, res) {
             isCorrect = item.isCorrect
             errorDirection = item.errorDirection
             recAmount = item.recommendation
+            explanationText = item.explanation
           }
         }
       } catch (err) {
@@ -110,12 +136,14 @@ export default async function handler(req, res) {
       }
     }
 
-    const explanation = getExplanation(scenario, condition || 'c0', isCorrect)
+    if (explanationText === undefined || explanationText === null) {
+      explanationText = getExplanation(scenario, condition || 'c0', isCorrect)
+    }
 
     return res.status(200).json({
       trialId,
       recommendation: recAmount,
-      explanation: condition === 'c0' ? null : explanation,
+      explanation: condition === 'c0' ? null : explanationText,
       isCorrect,
       errorDirection,
       groundTruthOptimal: scenario.groundTruthOptimal ?? (typeof scenario.recommendation === 'object' ? (scenario.recommendation.correct ?? scenario.recommendation.optimal) : null),
@@ -140,6 +168,7 @@ export default async function handler(req, res) {
     const eventDocs = []
     const trialResultsToUpsert = []
     const postTaskResponsesToUpsert = []
+    const participantStatusUpdates = new Map() // participantId -> newStatus
 
     for (const ev of eventsToProcess) {
       if (!ev.eventId || !ev.eventType || !ev.participantId) {
@@ -156,21 +185,59 @@ export default async function handler(req, res) {
         participantType: ev.participantType || null,
         screen: ev.screen || 'unknown',
         trialId: ev.trialId || null,
-        applicationVersion: ev.applicationVersion || '0.2.0',
-        studyVersion: ev.studyVersion || '4.1.0',
+        applicationVersion: ev.applicationVersion || CONFIG.APPLICATION_VERSION || '0.2.0',
+        studyVersion: ev.studyVersion || CONFIG.STUDY_VERSION || '4.1.0',
         payload: ev.payload || {},
       })
 
-      // 1. Analytical extraction for completed trial decisions
+      // Lifecycle status tracking
+      if (ev.eventType === 'PARTICIPANT_EXCLUDED') {
+        participantStatusUpdates.set(ev.participantId, 'excluded')
+      } else if (ev.eventType === 'QUESTIONNAIRE_COMPLETED' || ev.eventType === 'STUDY_COMPLETED') {
+        if (participantStatusUpdates.get(ev.participantId) !== 'excluded') {
+          participantStatusUpdates.set(ev.participantId, 'completed')
+        }
+      } else if (
+        ev.eventType === 'INITIAL_ESTIMATE_SUBMITTED' ||
+        ev.eventType === 'FINAL_ESTIMATE_SUBMITTED' ||
+        ev.eventType === 'COMPREHENSION_CHECK_PASSED'
+      ) {
+        if (!participantStatusUpdates.has(ev.participantId)) {
+          participantStatusUpdates.set(ev.participantId, 'in_progress')
+        }
+      }
+
+      // 1. Analytical extraction for completed trial decisions (Idempotent & Range-Validated)
       if (ev.eventType === 'FINAL_ESTIMATE_SUBMITTED' && ev.payload && ev.trialId) {
         const p = ev.payload
+
+        // Server-Side Range Validation
+        const valInitial = validateEstimateBounds(ev.trialId, p.initialEstimate)
+        const valFinal = validateEstimateBounds(ev.trialId, p.finalEstimate)
+
+        if (!valInitial.valid || !valFinal.valid) {
+          console.warn(`[telemetry validation reject] Invalid estimates for participant ${ev.participantId} trial ${ev.trialId}:`, { valInitial, valFinal })
+          continue
+        }
+
         const scenario = getScenarioById(ev.trialId)
         const groundTruthOptimal = p.groundTruthOptimal != null
           ? Number(p.groundTruthOptimal)
           : (scenario?.groundTruthOptimal ?? scenario?.recommendation?.correct ?? scenario?.recommendation?.optimal ?? null)
 
-        const woa = calculateWoA(p.initialEstimate, p.aiRecommendation, p.finalEstimate)
-        const { costRegret, directionalCostRegret } = calculateRegret(p.finalEstimate, groundTruthOptimal)
+        const sanitizedInitial = valInitial.sanitized
+        const sanitizedFinal = valFinal.sanitized
+        const sanitizedAI = Number(p.aiRecommendation)
+
+        const woa = calculateWoA(sanitizedInitial, sanitizedAI, sanitizedFinal)
+        const { costRegret, directionalCostRegret } = calculateRegret(sanitizedFinal, groundTruthOptimal)
+
+        // Strict scenario type mapping
+        let scenarioType = 'unknown'
+        if (ev.trialId.startsWith('SS-') || ev.trialId === 'PRAC-1') scenarioType = 'safety_stock'
+        else if (ev.trialId.startsWith('NV-') || ev.trialId === 'PRAC-2') scenarioType = 'newsvendor'
+        else if (ev.trialId.startsWith('ROP-')) scenarioType = 'reorder_point'
+        else if (ev.trialId.startsWith('EW-')) scenarioType = 'expedite_or_wait'
 
         trialResultsToUpsert.push({
           updateOne: {
@@ -180,24 +247,28 @@ export default async function handler(req, res) {
                 participantId: ev.participantId,
                 sessionId: ev.sessionId,
                 condition: ev.condition,
-                participantType: ev.participantType,
+                participantType: ev.participantType || null,
                 trialId: ev.trialId,
-                scenarioType: p.scenarioType || 'unknown',
+                scenarioType,
                 isPractice: Boolean(p.isPractice),
                 isCorrect: p.isCorrect != null ? Boolean(p.isCorrect) : null,
                 errorDirection: p.errorDirection || null,
                 groundTruthOptimal,
                 costRegret,
                 directionalCostRegret,
-                initialEstimate: Number(p.initialEstimate),
-                aiRecommendation: Number(p.aiRecommendation),
-                finalEstimate: Number(p.finalEstimate),
+                stockoutPenaltyWeight: STOCKOUT_PENALTY_WEIGHT,
+                holdingPenaltyWeight: HOLDING_PENALTY_WEIGHT,
+                initialEstimate: sanitizedInitial,
+                aiRecommendation: sanitizedAI,
+                finalEstimate: sanitizedFinal,
                 weightOfAdvice: woa,
                 finalConfidence: p.finalConfidence ? Number(p.finalConfidence) : null,
                 cognitiveLoad: p.cognitiveLoad ? Number(p.cognitiveLoad) : null,
                 verificationResponse: p.verificationResponse || null,
                 step4DwellMs: p.step4DwellMs || 0,
                 totalTrialDwellMs: p.totalTrialDwellMs || 0,
+                protocolVersion: CONFIG.STUDY_VERSION || '4.1.0',
+                applicationVersion: CONFIG.APPLICATION_VERSION || '0.2.0',
               },
             },
             upsert: true,
@@ -217,7 +288,7 @@ export default async function handler(req, res) {
                   participantId: ev.participantId,
                   sessionId: ev.sessionId,
                   condition: ev.condition,
-                  participantType: ev.participantType,
+                  participantType: ev.participantType || null,
                   nasaTlx: {
                     mentalDemand:   p.nasaTlx?.dimensions?.mentalDemand ?? null,
                     physicalDemand: p.nasaTlx?.dimensions?.physicalDemand ?? null,
@@ -241,6 +312,8 @@ export default async function handler(req, res) {
                     certifications:    p.domainExperience?.certifications ?? null,
                     feedback:          p.domainExperience?.feedback ?? null,
                   },
+                  protocolVersion: CONFIG.STUDY_VERSION || '4.1.0',
+                  applicationVersion: CONFIG.APPLICATION_VERSION || '0.2.0',
                   submittedAt: p.submittedAt ? new Date(p.submittedAt) : new Date(),
                 },
               },
@@ -251,9 +324,16 @@ export default async function handler(req, res) {
       }
     }
 
-    // Bulk insert events for high-throughput performance
+    // Bulk insert events for high-throughput performance (Idempotent: ignore duplicate eventId)
     if (eventDocs.length > 0) {
-      await TelemetryEvent.insertMany(eventDocs, { ordered: false })
+      try {
+        await TelemetryEvent.insertMany(eventDocs, { ordered: false })
+      } catch (insertErr) {
+        // MongoBulkWriteError on duplicate eventId is safely ignored for idempotency
+        if (insertErr.code !== 11000) {
+          console.warn('[Telemetry insertMany warning]:', insertErr.message)
+        }
+      }
     }
 
     // Bulk upsert TrialResult records
@@ -264,6 +344,14 @@ export default async function handler(req, res) {
     // Bulk upsert PostTaskResponse records
     if (postTaskResponsesToUpsert.length > 0) {
       await PostTaskResponse.bulkWrite(postTaskResponsesToUpsert, { ordered: false })
+    }
+
+    // Update participant status & lastActiveAt in ParticipantMode
+    for (const [pid, newStatus] of participantStatusUpdates.entries()) {
+      await ParticipantMode.updateOne(
+        { participantId: pid },
+        { $set: { status: newStatus, lastActiveAt: new Date() } }
+      ).catch((err) => console.warn(`[ParticipantMode status update error for ${pid}]`, err.message))
     }
 
     return res.status(200).json({
