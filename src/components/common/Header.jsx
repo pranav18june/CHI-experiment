@@ -3,7 +3,9 @@ import React from 'react'
 /**
  * Reusable Study Progress Header.
  */
-export function Header({ trialNumber, totalTrials, progress, isPractice, trialStep, surveyMode }) {
+export function Header({ trialNumber, totalTrials, progress, isPractice, trialStep, condition, surveyMode }) {
+  const activeCondition = condition || surveyMode
+
   return (
     <header className="study-header">
       <div className="wordmark">
@@ -28,8 +30,10 @@ export function Header({ trialNumber, totalTrials, progress, isPractice, trialSt
           </div>
         )}
       </div>
-      {surveyMode ? (
-        <span className="mode-badge" aria-label={`Survey mode ${surveyMode}`}>Mode: {surveyMode}</span>
+      {activeCondition ? (
+        <span className="mode-badge" aria-label={`Condition ${activeCondition}`}>
+          Condition: {String(activeCondition).toUpperCase()}
+        </span>
       ) : (
         <button className="quiet-button" type="button" title="Study support placeholder">
           Need help?

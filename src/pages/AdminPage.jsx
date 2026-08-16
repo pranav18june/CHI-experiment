@@ -18,10 +18,18 @@ const PHASE_LABELS = {
   unknown:            '—',
 }
 
-const CONDITION_LABELS = { c0: 'C0 – Baseline', c1: 'C1 – Drivers', c2: 'C2 – Verbal', c3: 'C3 – Counterfactual' }
+const CONDITION_LABELS = {
+  c0: 'C0 – Baseline (No Explanation)',
+  c1: 'C1 – Driver Attributions (Numerical)',
+  c2: 'C2 – Narrative (Verbal Explanation)',
+  c3: 'C3 – Counterfactual (Verification)',
+}
 
-function fmt(val, fallback = '—') {
-  return val != null && val !== '' ? val : fallback
+const CONDITION_SHORT = {
+  c0: 'C0 · Baseline',
+  c1: 'C1 · Drivers',
+  c2: 'C2 · Narrative',
+  c3: 'C3 · Counterfactual',
 }
 
 function fmtDate(iso) {
@@ -41,10 +49,11 @@ function timeAgo(iso) {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function ModeBadge({ mode }) {
-  if (!mode) return <span className="adm-badge adm-badge--neutral">—</span>
-  const cls = { T: 'adm-badge--t', N: 'adm-badge--n', C: 'adm-badge--c' }[mode] || 'adm-badge--neutral'
-  return <span className={`adm-badge ${cls}`}>{mode}</span>
+function ConditionBadge({ condition }) {
+  if (!condition) return <span className="adm-badge adm-badge--neutral">—</span>
+  const key = condition.toLowerCase()
+  const label = CONDITION_SHORT[key] || condition.toUpperCase()
+  return <span className={`adm-badge adm-badge--${key}`}>{label}</span>
 }
 
 function StatusBadge({ phase, isComplete }) {
@@ -146,7 +155,6 @@ export default function AdminPage() {
   // Table controls
   const [sortField, setSortField] = useState('sessionStarted')
   const [sortDir, setSortDir] = useState('desc')
-  const [filterMode, setFilterMode] = useState('all')
   const [filterCondition, setFilterCondition] = useState('all')
   const [filterStatus, setFilterStatus] = useState('all')
   const [search, setSearch] = useState('')
@@ -197,7 +205,6 @@ export default function AdminPage() {
     if (!data?.participants) return []
     let list = [...data.participants]
 
-    if (filterMode !== 'all')      list = list.filter((p) => p.surveyMode === filterMode)
     if (filterCondition !== 'all') list = list.filter((p) => p.condition === filterCondition)
     if (filterStatus === 'complete')   list = list.filter((p) => p.isComplete)
     if (filterStatus === 'active')     list = list.filter((p) => !p.isComplete && p.trialsCompleted > 0)
@@ -216,14 +223,13 @@ export default function AdminPage() {
     })
 
     return list
-  }, [data, filterMode, filterCondition, filterStatus, search, sortField, sortDir])
+  }, [data, filterCondition, filterStatus, search, sortField, sortDir])
 
   function toggleSort(field) {
     if (sortField === field) setSortDir((d) => d === 'asc' ? 'desc' : 'asc')
     else { setSortField(field); setSortDir('desc') }
   }
 
-  // ── Auth gate ───────────────────────────────────────────────────────────────
   if (!isAuthed) {
     return <LoginScreen onLogin={handleLogin} error={authError} />
   }
@@ -247,7 +253,7 @@ export default function AdminPage() {
           )}
           <button
             className="button"
-            style={{ minHeight: 34, padding: '0 14px', fontSize: 13 }}
+            style={{ minHeight: 32, padding: '0 12px', fontSize: 13 }}
             onClick={() => fetchData()}
             disabled={loading}
           >
@@ -276,14 +282,14 @@ export default function AdminPage() {
               sub={`${stats.completed} complete · ${stats.inProgress} in progress`}
             />
             <KpiCard
-              label="Mode T / N / C"
-              value={`${stats.modes.T} · ${stats.modes.N} · ${stats.modes.C}`}
-              sub="Text · Numerical · Counterfactual"
+              label="Conditions C0 · C1 · C2 · C3"
+              value={`${stats.conditions.c0} · ${stats.conditions.c1} · ${stats.conditions.c2} · ${stats.conditions.c3}`}
+              sub="Baseline · Drivers · Narrative · Counterfactual"
             />
             <KpiCard
-              label="Conditions c0–c3"
-              value={`${stats.conditions.c0} · ${stats.conditions.c1} · ${stats.conditions.c2} · ${stats.conditions.c3}`}
-              sub="Baseline · Drivers · Verbal · Counterfactual"
+              label="Active Sessions"
+              value={stats.inProgress}
+              sub={`${stats.notStarted} not yet started`}
             />
             <KpiCard
               label="Completion rate"
@@ -293,21 +299,23 @@ export default function AdminPage() {
           </section>
         )}
 
-        {/* ── Mode distribution bar ── */}
+        {/* ── 4-Way Condition distribution bar ── */}
         {stats && stats.total > 0 && (
           <section className="adm-dist-section">
-            <p className="adm-dist-label">Survey mode distribution</p>
+            <p className="adm-dist-label">Condition Distribution (4-Way Balance)</p>
             <div className="adm-dist-bar">
-              {['T', 'N', 'C'].map((m) => {
-                const pct = Math.round((stats.modes[m] / stats.total) * 100)
+              {['c0', 'c1', 'c2', 'c3'].map((c) => {
+                const count = stats.conditions[c] ?? 0
+                const pct = Math.round((count / stats.total) * 100)
+                const short = c.toUpperCase()
                 return (
                   <div
-                    key={m}
-                    className={`adm-dist-segment adm-dist-segment--${m.toLowerCase()}`}
+                    key={c}
+                    className={`adm-dist-segment adm-dist-segment--${c}`}
                     style={{ width: `${pct}%` }}
-                    title={`Mode ${m}: ${stats.modes[m]} (${pct}%)`}
+                    title={`${CONDITION_LABELS[c]}: ${count} (${pct}%)`}
                   >
-                    {pct >= 10 ? `${m} ${pct}%` : ''}
+                    {pct >= 8 ? `${short} (${count})` : ''}
                   </div>
                 )
               })}
@@ -325,20 +333,24 @@ export default function AdminPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          <select id="adm-filter-mode" className="adm-filter-select" value={filterMode} onChange={(e) => setFilterMode(e.target.value)}>
-            <option value="all">All modes</option>
-            <option value="T">T – Text</option>
-            <option value="N">N – Numerical</option>
-            <option value="C">C – Counterfactual</option>
-          </select>
-          <select id="adm-filter-condition" className="adm-filter-select" value={filterCondition} onChange={(e) => setFilterCondition(e.target.value)}>
+          <select
+            id="adm-filter-condition"
+            className="adm-filter-select"
+            value={filterCondition}
+            onChange={(e) => setFilterCondition(e.target.value)}
+          >
             <option value="all">All conditions</option>
-            <option value="c0">c0 – Baseline</option>
-            <option value="c1">c1 – Drivers</option>
-            <option value="c2">c2 – Verbal</option>
-            <option value="c3">c3 – Counterfactual</option>
+            <option value="c0">C0 – Baseline (No explanation)</option>
+            <option value="c1">C1 – Drivers (Numerical)</option>
+            <option value="c2">C2 – Narrative (Verbal)</option>
+            <option value="c3">C3 – Counterfactual (Verification)</option>
           </select>
-          <select id="adm-filter-status" className="adm-filter-select" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+          <select
+            id="adm-filter-status"
+            className="adm-filter-select"
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+          >
             <option value="all">All statuses</option>
             <option value="complete">Complete</option>
             <option value="active">In progress</option>
@@ -354,9 +366,6 @@ export default function AdminPage() {
               <tr>
                 <th onClick={() => toggleSort('participantId')} className="adm-th--sortable">
                   Participant <SortIcon field="participantId" sortField={sortField} sortDir={sortDir} />
-                </th>
-                <th onClick={() => toggleSort('surveyMode')} className="adm-th--sortable">
-                  Mode <SortIcon field="surveyMode" sortField={sortField} sortDir={sortDir} />
                 </th>
                 <th onClick={() => toggleSort('condition')} className="adm-th--sortable">
                   Condition <SortIcon field="condition" sortField={sortField} sortDir={sortDir} />
@@ -385,7 +394,7 @@ export default function AdminPage() {
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="adm-empty">
+                  <td colSpan={9} className="adm-empty">
                     {loading ? 'Loading…' : 'No participants match the current filters.'}
                   </td>
                 </tr>
@@ -395,10 +404,7 @@ export default function AdminPage() {
                     <span className="adm-pid">{p.participantId}</span>
                     <span className="adm-phase">{PHASE_LABELS[p.currentPhase] || p.currentPhase}</span>
                   </td>
-                  <td><ModeBadge mode={p.surveyMode} /></td>
-                  <td>
-                    <span className="adm-condition">{p.condition || '—'}</span>
-                  </td>
+                  <td><ConditionBadge condition={p.condition} /></td>
                   <td>
                     <span className="adm-type">{p.participantType || '—'}</span>
                   </td>

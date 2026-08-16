@@ -11,9 +11,9 @@ import { PracticeFeedback } from '../components/pages/PostTrialPages.jsx'
  */
 export default function PracticePage() {
   const {
-    phase, surveyMode,
+    phase, condition,
     trialNumber, totalTrials, progress, trialStep,
-    trial, type, condition, explanation, fetchedAdvice, isFetchingAdvice,
+    trial, type, explanation, fetchedAdvice, isFetchingAdvice,
     initialEstimate, setInitialEstimate,
     initialConfidence, setInitialConfidence,
     verificationResponse, setVerificationResponse,
@@ -34,7 +34,7 @@ export default function PracticePage() {
         progress={progress}
         isPractice={true}
         trialStep={trialStep}
-        surveyMode={surveyMode}
+        condition={condition}
       />
 
       {phase === 'practice' && (

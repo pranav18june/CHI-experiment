@@ -9,9 +9,9 @@ import { normalizeNumericInput } from '../services/validationService.js'
 const AUTOSAVE_STORAGE_KEY = 'study-session-autosave-v1'
 const MAX_RESUME_WINDOW_MS = 24 * 60 * 60 * 1000 // 24-hour single-session resume window
 
-// ── Survey Mode (T / N / C) ───────────────────────────────────────────────────
-const SURVEY_MODES = ['T', 'N', 'C']
-const MODE_COUNTER_KEY = 'study-mode-counter-v1' // local fallback counter
+// ── Experimental Conditions (c0 / c1 / c2 / c3) ──────────────────────────────
+export const CONDITIONS = ['c0', 'c1', 'c2', 'c3']
+const CONDITION_COUNTER_KEY = 'study-condition-counter-v1' // client-side offline fallback counter
 
 /**
  * Maps each study phase to its canonical URL path.
@@ -46,18 +46,22 @@ export const PATH_TO_PHASE = {
   '/complete':    'complete',
 }
 
-function assignModeFallback() {
+/**
+ * Client-side offline fallback balancer across all 4 conditions (c0, c1, c2, c3).
+ * Applies the min-count algorithm using a localStorage counter.
+ */
+function assignConditionFallback() {
   try {
-    const raw = localStorage.getItem(MODE_COUNTER_KEY)
-    const counts = raw ? JSON.parse(raw) : { T: 0, N: 0, C: 0 }
-    const minCount = Math.min(...SURVEY_MODES.map((m) => counts[m] ?? 0))
-    const tied = SURVEY_MODES.filter((m) => (counts[m] ?? 0) === minCount)
+    const raw = localStorage.getItem(CONDITION_COUNTER_KEY)
+    const counts = raw ? JSON.parse(raw) : { c0: 0, c1: 0, c2: 0, c3: 0 }
+    const minCount = Math.min(...CONDITIONS.map((c) => counts[c] ?? 0))
+    const tied = CONDITIONS.filter((c) => (counts[c] ?? 0) === minCount)
     const chosen = tied[Math.floor(Math.random() * tied.length)]
     counts[chosen] = (counts[chosen] ?? 0) + 1
-    localStorage.setItem(MODE_COUNTER_KEY, JSON.stringify(counts))
+    localStorage.setItem(CONDITION_COUNTER_KEY, JSON.stringify(counts))
     return chosen
   } catch {
-    return SURVEY_MODES[Math.floor(Math.random() * SURVEY_MODES.length)]
+    return CONDITIONS[Math.floor(Math.random() * CONDITIONS.length)]
   }
 }
 
@@ -81,15 +85,19 @@ export function StudyProvider({ children }) {
     telemetry.sessionMetadata.participantId || telemetry._loadOrInitSession().participantId
   )
   const [participantType, setParticipantType] = useState('novice')
-  const [surveyMode, setSurveyMode] = useState(() => {
+
+  // ── Condition (c0 / c1 / c2 / c3) — assigned at consent, balanced & immutable
+  const [condition, setCondition] = useState(() => {
     try {
       const saved = localStorage.getItem(AUTOSAVE_STORAGE_KEY)
       if (saved) {
         const parsed = JSON.parse(saved)
-        if (parsed.surveyMode) return parsed.surveyMode
+        if (parsed.condition && CONDITIONS.includes(parsed.condition)) {
+          return parsed.condition
+        }
       }
     } catch {}
-    return 'T' // default fallback mode for direct page preview
+    return 'c0' // default fallback for direct route preview
   })
 
   // ── Phase derived directly from current URL path ────────────────────────────
@@ -121,12 +129,6 @@ export function StudyProvider({ children }) {
       navigate(targetPath)
     }
   }, [navigate, location.pathname])
-
-  // ── Experimental condition ─────────────────────────────────────────────────
-  const [condition] = useState(() => {
-    const options = CONFIG.CONDITIONS
-    return options[Math.floor(Math.random() * options.length)]
-  })
 
   // ── Trial tracking ─────────────────────────────────────────────────────────
   const [isPractice, setIsPractice] = useState(() => location.pathname !== '/scored')
@@ -172,14 +174,13 @@ export function StudyProvider({ children }) {
         const elapsed = Date.now() - (parsed.savedAt || 0)
         if (elapsed < MAX_RESUME_WINDOW_MS && parsed.participantId === participantId) {
           if (parsed.participantType) setParticipantType(parsed.participantType)
-          if (parsed.surveyMode) setSurveyMode(parsed.surveyMode)
+          if (parsed.condition && CONDITIONS.includes(parsed.condition)) setCondition(parsed.condition)
           if (typeof parsed.isPractice === 'boolean') setIsPractice(parsed.isPractice)
           if (typeof parsed.trialIndex === 'number') setTrialIndex(parsed.trialIndex)
           if (typeof parsed.trialStep === 'number') setTrialStep(parsed.trialStep)
           if (parsed.initialEstimate) setInitialEstimate(parsed.initialEstimate)
           if (parsed.initialConfidence) setInitialConfidence(parsed.initialConfidence)
 
-          // Only resume path if participant is visiting the root page '/'
           if (location.pathname === '/' && parsed.phase && parsed.phase !== 'consent' && parsed.phase !== 'complete') {
             setPhaseState(parsed.phase)
             const path = PHASE_TO_PATH[parsed.phase]
@@ -193,12 +194,12 @@ export function StudyProvider({ children }) {
   useEffect(() => {
     try {
       localStorage.setItem(AUTOSAVE_STORAGE_KEY, JSON.stringify({
-        participantId, participantType, phase, condition, surveyMode,
+        participantId, participantType, phase, condition,
         isPractice, trialIndex, trialStep, initialEstimate, initialConfidence,
         savedAt: Date.now(),
       }))
     } catch {}
-  }, [participantId, participantType, phase, condition, surveyMode,
+  }, [participantId, participantType, phase, condition,
       isPractice, trialIndex, trialStep, initialEstimate, initialConfidence])
 
   // ── Telemetry ──────────────────────────────────────────────────────────────
@@ -232,7 +233,7 @@ export function StudyProvider({ children }) {
     setFetchedExplanation(null)
   }
 
-  async function fetchSurveyMode(pid) {
+  async function fetchCondition(pid) {
     try {
       const response = await fetch('/api/assign-mode', {
         method: 'POST',
@@ -241,21 +242,24 @@ export function StudyProvider({ children }) {
       })
       if (response.ok) {
         const data = await response.json()
-        if (SURVEY_MODES.includes(data.surveyMode)) {
-          setSurveyMode(data.surveyMode)
-          return data.surveyMode
+        const assignedCond = data.condition || data.surveyMode
+        if (CONDITIONS.includes(assignedCond)) {
+          setCondition(assignedCond)
+          telemetry.setSessionIdentity({ condition: assignedCond })
+          return assignedCond
         }
       }
     } catch {}
-    const fallback = assignModeFallback()
-    setSurveyMode(fallback)
+    const fallback = assignConditionFallback()
+    setCondition(fallback)
+    telemetry.setSessionIdentity({ condition: fallback })
     return fallback
   }
 
   // ── Handlers ───────────────────────────────────────────────────────────────
   async function handleConsentSubmit(demographics) {
     telemetry.recordConsent(demographics)
-    await fetchSurveyMode(participantId)
+    await fetchCondition(participantId)
     setPhase('participant-type')
   }
 
@@ -405,7 +409,8 @@ export function StudyProvider({ children }) {
   }
 
   const value = {
-    participantId, participantType, surveyMode, condition,
+    participantId, participantType, condition,
+    surveyMode: condition, // Alias for backward compatibility
     phase, setPhase,
     isPractice, trialIndex, trialStep,
     trial, type, totalTrials, trialNumber, isLastTrial, progress,

@@ -9,9 +9,9 @@ import { TrialShell } from '../components/trial/TrialShell.jsx'
  */
 export default function ScoredPage() {
   const {
-    surveyMode,
+    condition,
     trialNumber, totalTrials, progress, trialStep,
-    trial, type, condition, explanation, fetchedAdvice, isFetchingAdvice,
+    trial, type, explanation, fetchedAdvice, isFetchingAdvice,
     initialEstimate, setInitialEstimate,
     initialConfidence, setInitialConfidence,
     verificationResponse, setVerificationResponse,
@@ -31,7 +31,7 @@ export default function ScoredPage() {
         progress={progress}
         isPractice={false}
         trialStep={trialStep}
-        surveyMode={surveyMode}
+        condition={condition}
       />
 
       <TrialShell

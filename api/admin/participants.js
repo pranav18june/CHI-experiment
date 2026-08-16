@@ -12,13 +12,14 @@ const SCORED_TRIAL_TOTAL = 12
  * Header: x-admin-secret: <ADMIN_SECRET env var, default: "study-admin">
  *
  * Returns an aggregated summary of all participants for the research admin dashboard:
- *   - Global distribution stats (mode, condition, completion)
+ *   - Global condition distribution stats (c0, c1, c2, c3)
  *   - Per-participant session info, trial progress, and average WoA
  *
- * Data sources:
- *   1. ParticipantMode  → surveyMode (T / N / C)
- *   2. TelemetryEvent   → session start time, condition, participantType, last-seen phase
- *   3. TrialResult      → scored trials completed, average Weight of Advice
+ * Conditions:
+ *   c0: Baseline (recommendation-only, no explanation)
+ *   c1: Numerical (driver attributions)
+ *   c2: Narrative (verbal explanation)
+ *   c3: Counterfactual (what-if verification explanation)
  */
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true')
@@ -39,14 +40,14 @@ export default async function handler(req, res) {
   try {
     await connectToDatabase()
 
-    // ── 1. Survey mode assignments ───────────────────────────────────────────
+    // ── 1. Condition assignments from ParticipantMode ────────────────────────
     const modeRecords = await ParticipantMode.find({}).lean()
-    const modeMap = {}
-    for (const r of modeRecords) modeMap[r.participantId] = r.surveyMode
+    const conditionMap = {}
+    for (const r of modeRecords) {
+      conditionMap[r.participantId] = r.condition || r.surveyMode
+    }
 
     // ── 2. Session info per participant from TelemetryEvent ──────────────────
-    // Aggregate to get: first event (session start), last event (last seen),
-    // condition, participantType, and the most recent screen/phase.
     const sessionAgg = await TelemetryEvent.aggregate([
       {
         $group: {
@@ -59,7 +60,7 @@ export default async function handler(req, res) {
       },
     ])
 
-    // Separately get the most recent screen viewed per participant
+    // Most recent screen viewed per participant
     const screenAgg = await TelemetryEvent.aggregate([
       { $match: { eventType: 'SCREEN_VIEWED' } },
       { $sort: { timestamp: -1 } },
@@ -78,7 +79,7 @@ export default async function handler(req, res) {
       { $match: { isPractice: false } },
       {
         $group: {
-          _id:            '$participantId',
+          _id:             '$participantId',
           trialsCompleted: { $sum: 1 },
           avgWoA:          { $avg: '$weightOfAdvice' },
           avgConfidence:   { $avg: '$finalConfidence' },
@@ -90,7 +91,6 @@ export default async function handler(req, res) {
     for (const t of trialAgg) trialMap[t._id] = t
 
     // ── 4. Build participant list ─────────────────────────────────────────────
-    // Union of all participant IDs across all three sources
     const allIds = new Set([
       ...modeRecords.map((r) => r.participantId),
       ...sessionAgg.map((s) => s._id),
@@ -102,11 +102,11 @@ export default async function handler(req, res) {
       const trial   = trialMap[pid] || {}
       const tc      = trial.trialsCompleted || 0
       const phase   = screenMap[pid] || session.currentPhase || 'unknown'
+      const cond    = conditionMap[pid] || session.condition || 'c0'
 
       participants.push({
         participantId:   pid,
-        surveyMode:      modeMap[pid]            || null,
-        condition:       session.condition       || null,
+        condition:       cond,
         participantType: session.participantType || null,
         sessionStarted:  session.sessionStarted  || null,
         lastSeen:        session.lastSeen        || null,
@@ -115,9 +115,9 @@ export default async function handler(req, res) {
         totalTrials:     SCORED_TRIAL_TOTAL,
         progress:        Math.round((tc / SCORED_TRIAL_TOTAL) * 100),
         isComplete:      phase === 'complete',
-        avgWoA:          trial.avgWoA          != null ? Math.round(trial.avgWoA * 1000) / 1000 : null,
-        avgConfidence:   trial.avgConfidence   != null ? Math.round(trial.avgConfidence * 10) / 10 : null,
-        avgCognitiveLoad:trial.avgCognitiveLoad!= null ? Math.round(trial.avgCognitiveLoad * 10) / 10 : null,
+        avgWoA:          trial.avgWoA           != null ? Math.round(trial.avgWoA * 1000) / 1000 : null,
+        avgConfidence:   trial.avgConfidence    != null ? Math.round(trial.avgConfidence * 10) / 10 : null,
+        avgCognitiveLoad:trial.avgCognitiveLoad != null ? Math.round(trial.avgCognitiveLoad * 10) / 10 : null,
       })
     }
 
@@ -125,21 +125,20 @@ export default async function handler(req, res) {
     participants.sort((a, b) => new Date(b.sessionStarted) - new Date(a.sessionStarted))
 
     // ── 5. Compute global stats ───────────────────────────────────────────────
-    const modes      = { T: 0, N: 0, C: 0 }
     const conditions = { c0: 0, c1: 0, c2: 0, c3: 0 }
     let completed = 0
     let inProgress = 0
 
     for (const p of participants) {
-      if (p.surveyMode && modes[p.surveyMode] !== undefined)       modes[p.surveyMode]++
-      if (p.condition  && conditions[p.condition] !== undefined)   conditions[p.condition]++
+      if (p.condition && conditions[p.condition] !== undefined) {
+        conditions[p.condition]++
+      }
       if (p.isComplete) completed++
       else if (p.trialsCompleted > 0 || (p.currentPhase && p.currentPhase !== 'consent')) inProgress++
     }
 
     const stats = {
       total:      participants.length,
-      modes,
       conditions,
       completed,
       inProgress,
