@@ -3,7 +3,7 @@ import React from 'react'
 /**
  * Reusable Study Progress Header.
  */
-export function Header({ trialNumber, totalTrials, progress, isPractice, trialStep }) {
+export function Header({ trialNumber, totalTrials, progress, isPractice, trialStep, surveyMode }) {
   return (
     <header className="study-header">
       <div className="wordmark">
@@ -28,9 +28,13 @@ export function Header({ trialNumber, totalTrials, progress, isPractice, trialSt
           </div>
         )}
       </div>
-      <button className="quiet-button" type="button" title="Study support placeholder">
-        Need help?
-      </button>
+      {surveyMode ? (
+        <span className="mode-badge" aria-label={`Survey mode ${surveyMode}`}>Mode: {surveyMode}</span>
+      ) : (
+        <button className="quiet-button" type="button" title="Study support placeholder">
+          Need help?
+        </button>
+      )}
     </header>
   )
 }

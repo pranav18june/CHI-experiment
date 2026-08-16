@@ -1,0 +1,154 @@
+import { connectToDatabase } from '../lib/mongodb.js'
+import TelemetryEvent from '../models/TelemetryEvent.js'
+import TrialResult from '../models/TrialResult.js'
+import ParticipantMode from '../models/ParticipantMode.js'
+
+const SCORED_TRIAL_TOTAL = 12
+
+/**
+ * Admin Participants API
+ *
+ * GET /api/admin/participants
+ * Header: x-admin-secret: <ADMIN_SECRET env var, default: "study-admin">
+ *
+ * Returns an aggregated summary of all participants for the research admin dashboard:
+ *   - Global distribution stats (mode, condition, completion)
+ *   - Per-participant session info, trial progress, and average WoA
+ *
+ * Data sources:
+ *   1. ParticipantMode  → surveyMode (T / N / C)
+ *   2. TelemetryEvent   → session start time, condition, participantType, last-seen phase
+ *   3. TrialResult      → scored trials completed, average Weight of Advice
+ */
+export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Credentials', 'true')
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Content-Type, x-admin-secret')
+
+  if (req.method === 'OPTIONS') return res.status(200).end()
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method Not Allowed' })
+
+  // ── Auth check ──────────────────────────────────────────────────────────────
+  const secret = process.env.ADMIN_SECRET || 'study-admin'
+  const provided = req.headers['x-admin-secret']
+  if (!provided || provided !== secret) {
+    return res.status(401).json({ error: 'Unauthorized' })
+  }
+
+  try {
+    await connectToDatabase()
+
+    // ── 1. Survey mode assignments ───────────────────────────────────────────
+    const modeRecords = await ParticipantMode.find({}).lean()
+    const modeMap = {}
+    for (const r of modeRecords) modeMap[r.participantId] = r.surveyMode
+
+    // ── 2. Session info per participant from TelemetryEvent ──────────────────
+    // Aggregate to get: first event (session start), last event (last seen),
+    // condition, participantType, and the most recent screen/phase.
+    const sessionAgg = await TelemetryEvent.aggregate([
+      {
+        $group: {
+          _id: '$participantId',
+          sessionStarted:  { $min: '$timestamp' },
+          lastSeen:        { $max: '$timestamp' },
+          condition:       { $first: '$condition' },
+          participantType: { $first: '$participantType' },
+        },
+      },
+    ])
+
+    // Separately get the most recent screen viewed per participant
+    const screenAgg = await TelemetryEvent.aggregate([
+      { $match: { eventType: 'SCREEN_VIEWED' } },
+      { $sort: { timestamp: -1 } },
+      {
+        $group: {
+          _id: '$participantId',
+          currentPhase: { $first: '$screen' },
+        },
+      },
+    ])
+    const screenMap = {}
+    for (const s of screenAgg) screenMap[s._id] = s.currentPhase
+
+    // ── 3. Trial completion stats from TrialResult ───────────────────────────
+    const trialAgg = await TrialResult.aggregate([
+      { $match: { isPractice: false } },
+      {
+        $group: {
+          _id:            '$participantId',
+          trialsCompleted: { $sum: 1 },
+          avgWoA:          { $avg: '$weightOfAdvice' },
+          avgConfidence:   { $avg: '$finalConfidence' },
+          avgCognitiveLoad:{ $avg: '$cognitiveLoad' },
+        },
+      },
+    ])
+    const trialMap = {}
+    for (const t of trialAgg) trialMap[t._id] = t
+
+    // ── 4. Build participant list ─────────────────────────────────────────────
+    // Union of all participant IDs across all three sources
+    const allIds = new Set([
+      ...modeRecords.map((r) => r.participantId),
+      ...sessionAgg.map((s) => s._id),
+    ])
+
+    const participants = []
+    for (const pid of allIds) {
+      const session = sessionAgg.find((s) => s._id === pid) || {}
+      const trial   = trialMap[pid] || {}
+      const tc      = trial.trialsCompleted || 0
+      const phase   = screenMap[pid] || session.currentPhase || 'unknown'
+
+      participants.push({
+        participantId:   pid,
+        surveyMode:      modeMap[pid]            || null,
+        condition:       session.condition       || null,
+        participantType: session.participantType || null,
+        sessionStarted:  session.sessionStarted  || null,
+        lastSeen:        session.lastSeen        || null,
+        currentPhase:    phase,
+        trialsCompleted: tc,
+        totalTrials:     SCORED_TRIAL_TOTAL,
+        progress:        Math.round((tc / SCORED_TRIAL_TOTAL) * 100),
+        isComplete:      phase === 'complete',
+        avgWoA:          trial.avgWoA          != null ? Math.round(trial.avgWoA * 1000) / 1000 : null,
+        avgConfidence:   trial.avgConfidence   != null ? Math.round(trial.avgConfidence * 10) / 10 : null,
+        avgCognitiveLoad:trial.avgCognitiveLoad!= null ? Math.round(trial.avgCognitiveLoad * 10) / 10 : null,
+      })
+    }
+
+    // Sort newest first
+    participants.sort((a, b) => new Date(b.sessionStarted) - new Date(a.sessionStarted))
+
+    // ── 5. Compute global stats ───────────────────────────────────────────────
+    const modes      = { T: 0, N: 0, C: 0 }
+    const conditions = { c0: 0, c1: 0, c2: 0, c3: 0 }
+    let completed = 0
+    let inProgress = 0
+
+    for (const p of participants) {
+      if (p.surveyMode && modes[p.surveyMode] !== undefined)       modes[p.surveyMode]++
+      if (p.condition  && conditions[p.condition] !== undefined)   conditions[p.condition]++
+      if (p.isComplete) completed++
+      else if (p.trialsCompleted > 0 || (p.currentPhase && p.currentPhase !== 'consent')) inProgress++
+    }
+
+    const stats = {
+      total:      participants.length,
+      modes,
+      conditions,
+      completed,
+      inProgress,
+      notStarted: participants.length - completed - inProgress,
+    }
+
+    return res.status(200).json({ stats, participants })
+  } catch (error) {
+    console.error('[Admin API error]', error)
+    return res.status(500).json({ error: 'Internal Server Error', message: error.message })
+  }
+}
