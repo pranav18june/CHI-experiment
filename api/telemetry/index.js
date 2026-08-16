@@ -1,6 +1,7 @@
 import { connectToDatabase } from '../lib/mongodb.js'
 import TelemetryEvent from '../models/TelemetryEvent.js'
 import TrialResult from '../models/TrialResult.js'
+import PostTaskResponse from '../models/PostTaskResponse.js'
 import ParticipantTrialPlan from '../models/ParticipantTrialPlan.js'
 import { getScenarioById, getExplanation } from '../../src/scenarios/index.js'
 import { STOCKOUT_PENALTY_WEIGHT, HOLDING_PENALTY_WEIGHT } from '../../src/config/index.js'
@@ -17,18 +18,6 @@ function calculateWoA(initial, advice, final) {
 
 /**
  * Protocol Primary Outcome Measure: Directional Cost Regret
- *
- * Computes:
- *   1. costRegret (unsigned): |finalEstimate - groundTruthOptimal|
- *   2. directionalCostRegret (signed, asymmetrically weighted):
- *      - Under-estimation (stockout risk / under-buffering): (final - optimal) * STOCKOUT_PENALTY_WEIGHT (~1.85x)
- *      - Over-estimation (holding cost / over-buffering): (final - optimal) * HOLDING_PENALTY_WEIGHT (1.0x)
- *
- * @param {number} finalEstimate - Participant final decision
- * @param {number} groundTruthOptimal - Cost-optimal benchmark
- * @param {number} [stockoutWeight=1.85] - Multiplier for under-estimation
- * @param {number} [holdingWeight=1.0] - Multiplier for over-estimation
- * @returns {{ costRegret: number|null, directionalCostRegret: number|null }}
  */
 function calculateRegret(
   finalEstimate,
@@ -48,7 +37,6 @@ function calculateRegret(
   const signedDiff = finalNum - optNum
   const costRegret = Math.abs(signedDiff)
 
-  // Asymmetric weighting: underestimating (stockout side) penalized by stockoutWeight
   const weightedDiff = signedDiff < 0
     ? signedDiff * stockoutWeight
     : signedDiff * holdingWeight
@@ -74,7 +62,6 @@ export default async function handler(req, res) {
   }
 
   // ── SERVER-SIDE ADVICE RESOLUTION (LATIN-SQUARE TRIAL PLAN RESOLUTION) ──────
-  // Resolves AI advice and explanation based on participant's assigned counterbalanced plan
   if (req.method === 'GET') {
     const { trialId, condition, participantId } = req.query
     if (!trialId) {
@@ -152,6 +139,7 @@ export default async function handler(req, res) {
     // Process all incoming event envelopes
     const eventDocs = []
     const trialResultsToUpsert = []
+    const postTaskResponsesToUpsert = []
 
     for (const ev of eventsToProcess) {
       if (!ev.eventId || !ev.eventType || !ev.participantId) {
@@ -173,7 +161,7 @@ export default async function handler(req, res) {
         payload: ev.payload || {},
       })
 
-      // If this event is a completed trial decision (FINAL_ESTIMATE_SUBMITTED), extract analytical row
+      // 1. Analytical extraction for completed trial decisions
       if (ev.eventType === 'FINAL_ESTIMATE_SUBMITTED' && ev.payload && ev.trialId) {
         const p = ev.payload
         const scenario = getScenarioById(ev.trialId)
@@ -216,22 +204,73 @@ export default async function handler(req, res) {
           },
         })
       }
+
+      // 2. Analytical extraction for completed post-task questionnaires
+      if (ev.eventType === 'QUESTIONNAIRE_COMPLETED' && ev.payload) {
+        const p = ev.payload.responses || ev.payload
+        if (p.nasaTlx || p.numeracy || p.domainExperience) {
+          postTaskResponsesToUpsert.push({
+            updateOne: {
+              filter: { participantId: ev.participantId },
+              update: {
+                $set: {
+                  participantId: ev.participantId,
+                  sessionId: ev.sessionId,
+                  condition: ev.condition,
+                  participantType: ev.participantType,
+                  nasaTlx: {
+                    mentalDemand:   p.nasaTlx?.dimensions?.mentalDemand ?? null,
+                    physicalDemand: p.nasaTlx?.dimensions?.physicalDemand ?? null,
+                    temporalDemand: p.nasaTlx?.dimensions?.temporalDemand ?? null,
+                    performance:    p.nasaTlx?.dimensions?.performance ?? null,
+                    effort:         p.nasaTlx?.dimensions?.effort ?? null,
+                    frustration:    p.nasaTlx?.dimensions?.frustration ?? null,
+                    rawTlxAverage:  p.nasaTlx?.rawTlxAverage ?? null,
+                  },
+                  numeracy: {
+                    instrument:      p.numeracy?.scored?.instrument ?? 'Schwartz-Lipkus-3Item-Plus-SNS',
+                    objectiveScore:  p.numeracy?.scored?.objectiveScore ?? null,
+                    totalObjective:  p.numeracy?.scored?.totalObjective ?? 3,
+                    subjectiveScore: p.numeracy?.scored?.subjectiveScore ?? null,
+                    rawResponses:    p.numeracy?.rawResponses ?? {},
+                  },
+                  domainExperience: {
+                    yearsExperience:   p.domainExperience?.yearsExperience ?? null,
+                    primaryRole:       p.domainExperience?.primaryRole ?? null,
+                    decisionFrequency: p.domainExperience?.decisionFrequency ?? null,
+                    certifications:    p.domainExperience?.certifications ?? null,
+                    feedback:          p.domainExperience?.feedback ?? null,
+                  },
+                  submittedAt: p.submittedAt ? new Date(p.submittedAt) : new Date(),
+                },
+              },
+              upsert: true,
+            },
+          })
+        }
+      }
     }
 
-    // Bulk insert events for extreme high-throughput performance
+    // Bulk insert events for high-throughput performance
     if (eventDocs.length > 0) {
       await TelemetryEvent.insertMany(eventDocs, { ordered: false })
     }
 
-    // Bulk upsert TrialResult analytical records
+    // Bulk upsert TrialResult records
     if (trialResultsToUpsert.length > 0) {
       await TrialResult.bulkWrite(trialResultsToUpsert, { ordered: false })
+    }
+
+    // Bulk upsert PostTaskResponse records
+    if (postTaskResponsesToUpsert.length > 0) {
+      await PostTaskResponse.bulkWrite(postTaskResponsesToUpsert, { ordered: false })
     }
 
     return res.status(200).json({
       status: 'ok',
       eventsLogged: eventDocs.length,
       trialsRecorded: trialResultsToUpsert.length,
+      postTasksRecorded: postTaskResponsesToUpsert.length,
     })
   } catch (error) {
     console.error('[Telemetry API POST Error]', error)
