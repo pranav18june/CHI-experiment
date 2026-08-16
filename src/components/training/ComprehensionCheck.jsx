@@ -142,18 +142,13 @@ export default function ComprehensionCheck({ onPass, onFail, onExclude }) {
       // 4/4 Correct -> Passed!
       onPass({ attempt, score: correctCount, answers })
     } else {
-      if (attempt === 1) {
-        // Attempt 1 Failed -> Allow 1 retry
-        onFail({ attempt: 1, score: correctCount, answers })
-      } else {
-        // Attempt 2 Failed -> Pre-registered exclusion
-        onExclude({ attempt: 2, score: correctCount, answers })
-      }
+      // Allow retry or review without blocking
+      onFail({ attempt, score: correctCount, answers })
     }
   }
 
   function handleRetry() {
-    setAttempt(2)
+    setAttempt((prev) => prev + 1)
     setAnswers({})
     setHasSubmitted(false)
     setScore(0)
@@ -173,14 +168,9 @@ export default function ComprehensionCheck({ onPass, onFail, onExclude }) {
         </h1>
         <p className="lede" style={{ marginBottom: 28 }}>
           Please answer all 4 questions below to verify key concepts before proceeding to the practice round.
-          {attempt === 2 && (
-            <span style={{ display: 'block', color: '#b45309', fontWeight: 600, marginTop: 6 }}>
-              ⚠ Attempt 2 of 2 — Please read each question carefully.
-            </span>
-          )}
         </p>
 
-        {/* Retry Banner if Attempt 1 was missed */}
+        {/* Banner if Attempt 1 was missed */}
         {hasSubmitted && score < COMPREHENSION_ITEMS.length && attempt === 1 && (
           <div
             style={{
@@ -196,17 +186,65 @@ export default function ComprehensionCheck({ onPass, onFail, onExclude }) {
               Score: {score} / {COMPREHENSION_ITEMS.length} correct
             </strong>
             <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5 }}>
-              One or more answers did not match the study concepts. Per protocol guidelines, you have one retry attempt.
-              Please review the concepts and try again.
+              Review the questions below. You can try again or proceed to the practice tasks.
             </p>
-            <button
-              className="button primary"
-              type="button"
-              onClick={handleRetry}
-              style={{ marginTop: 14, minHeight: 40, padding: '0 16px', fontSize: 13 }}
-            >
-              Start Attempt 2 →
-            </button>
+            <div style={{ display: 'flex', gap: 12, marginTop: 14 }}>
+              <button
+                className="button primary"
+                type="button"
+                onClick={handleRetry}
+                style={{ minHeight: 40, padding: '0 16px', fontSize: 13 }}
+              >
+                Try Again ↺
+              </button>
+              <button
+                className="button secondary"
+                type="button"
+                onClick={() => onPass({ attempt, score, answers })}
+                style={{ minHeight: 40, padding: '0 16px', fontSize: 13 }}
+              >
+                Proceed to Practice Tasks →
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Banner if Attempt 2+ was missed */}
+        {hasSubmitted && score < COMPREHENSION_ITEMS.length && attempt >= 2 && (
+          <div
+            style={{
+              background: '#eff6ff',
+              border: '1px solid #bfdbfe',
+              borderRadius: 8,
+              padding: '16px 20px',
+              marginBottom: 28,
+              color: '#1e40af',
+            }}
+          >
+            <strong style={{ display: 'block', marginBottom: 4, fontSize: 15 }}>
+              Score: {score} / {COMPREHENSION_ITEMS.length}
+            </strong>
+            <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5 }}>
+              Review the questions below. You can proceed directly to the practice tasks now.
+            </p>
+            <div style={{ display: 'flex', gap: 12, marginTop: 14 }}>
+              <button
+                className="button primary"
+                type="button"
+                onClick={() => onPass({ attempt, score, answers })}
+                style={{ minHeight: 40, padding: '0 16px', fontSize: 13 }}
+              >
+                Proceed to Practice Tasks →
+              </button>
+              <button
+                className="button secondary"
+                type="button"
+                onClick={handleRetry}
+                style={{ minHeight: 40, padding: '0 16px', fontSize: 13 }}
+              >
+                Try Again ↺
+              </button>
+            </div>
           </div>
         )}
 

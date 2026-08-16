@@ -7,7 +7,7 @@ import { useStudyContext } from '../context/StudyContext.jsx'
  * Rendered when a novice participant fails the 4-item comprehension check on both attempts.
  */
 export default function ExcludedPage() {
-  const { participantId } = useStudyContext()
+  const { participantId, resetExclusionAndProceed, restartSession } = useStudyContext()
 
   return (
     <main className="welcome-shell">
@@ -31,6 +31,25 @@ export default function ExcludedPage() {
             session has ended. No further tasks or decisions are required.
           </p>
         </section>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 24 }}>
+          <button
+            type="button"
+            className="button primary full"
+            onClick={resetExclusionAndProceed}
+            style={{ padding: '14px 20px', fontSize: 15 }}
+          >
+            Bypass & Proceed to Practice Tasks →
+          </button>
+          <button
+            type="button"
+            className="button secondary full"
+            onClick={restartSession}
+            style={{ padding: '12px 20px', fontSize: 14 }}
+          >
+            Restart Session from Beginning ↺
+          </button>
+        </div>
 
         <p className="participant-code" style={{ marginBottom: 0 }}>
           Session reference ID: <strong>{participantId}</strong>

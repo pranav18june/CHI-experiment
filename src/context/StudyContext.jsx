@@ -564,6 +564,22 @@ export function StudyProvider({ children }) {
     setPhase('debrief')
   }
 
+  function resetExclusionAndProceed() {
+    setIsExcluded(false)
+    setComprehensionPassed(true)
+    beginPractice()
+  }
+
+  function restartSession() {
+    try {
+      localStorage.removeItem(AUTOSAVE_STORAGE_KEY)
+    } catch {}
+    setIsExcluded(false)
+    setComprehensionPassed(false)
+    setPhaseState('consent')
+    navigate('/', { replace: true })
+  }
+
   const value = {
     participantId, participantType, condition, trialPlan,
     comprehensionPassed, isExcluded,
@@ -593,6 +609,8 @@ export function StudyProvider({ children }) {
     submitFinalEstimate,
     handleNextPracticeTrial,
     handlePostTaskComplete,
+    resetExclusionAndProceed,
+    restartSession,
   }
 
   return <StudyContext.Provider value={value}>{children}</StudyContext.Provider>
