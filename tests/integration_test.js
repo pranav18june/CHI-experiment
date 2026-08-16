@@ -6,12 +6,12 @@ import exportHandler from '../api/admin/export.js'
 import reclaimHandler from '../api/admin/reclaim-abandoned.js'
 import withdrawHandler from '../api/admin/withdraw.js'
 
-import ModeCounter from '../api/models/ModeCounter.js'
-import ParticipantMode from '../api/models/ParticipantMode.js'
-import ParticipantTrialPlan from '../api/models/ParticipantTrialPlan.js'
-import TelemetryEvent from '../api/models/TelemetryEvent.js'
-import TrialResult from '../api/models/TrialResult.js'
-import PostTaskResponse from '../api/models/PostTaskResponse.js'
+import ModeCounter from '../lib/models/ModeCounter.js'
+import ParticipantMode from '../lib/models/ParticipantMode.js'
+import ParticipantTrialPlan from '../lib/models/ParticipantTrialPlan.js'
+import TelemetryEvent from '../lib/models/TelemetryEvent.js'
+import TrialResult from '../lib/models/TrialResult.js'
+import PostTaskResponse from '../lib/models/PostTaskResponse.js'
 
 const TEST_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27018/decision_study_test'
 process.env.MONGODB_URI = TEST_URI

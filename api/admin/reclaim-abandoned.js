@@ -1,7 +1,7 @@
-import { connectToDatabase } from '../lib/mongodb.js'
-import ParticipantMode from '../models/ParticipantMode.js'
-import ParticipantTrialPlan from '../models/ParticipantTrialPlan.js'
-import ModeCounter from '../models/ModeCounter.js'
+import { connectToDatabase } from '../../lib/mongodb.js'
+import ParticipantMode from '../../lib/models/ParticipantMode.js'
+import ParticipantTrialPlan from '../../lib/models/ParticipantTrialPlan.js'
+import ModeCounter from '../../lib/models/ModeCounter.js'
 
 export const CONDITIONS = ['c0', 'c1', 'c2', 'c3']
 export const SCHEDULE_KEYS = ['s0', 's1', 's2', 's3', 's4', 's5', 's6', 's7']

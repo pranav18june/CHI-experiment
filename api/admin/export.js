@@ -1,8 +1,8 @@
-import { connectToDatabase } from '../lib/mongodb.js'
-import ParticipantMode from '../models/ParticipantMode.js'
-import ParticipantTrialPlan from '../models/ParticipantTrialPlan.js'
-import TrialResult from '../models/TrialResult.js'
-import PostTaskResponse from '../models/PostTaskResponse.js'
+import { connectToDatabase } from '../../lib/mongodb.js'
+import ParticipantMode from '../../lib/models/ParticipantMode.js'
+import ParticipantTrialPlan from '../../lib/models/ParticipantTrialPlan.js'
+import TrialResult from '../../lib/models/TrialResult.js'
+import PostTaskResponse from '../../lib/models/PostTaskResponse.js'
 import { CONFIG, STOCKOUT_PENALTY_WEIGHT, HOLDING_PENALTY_WEIGHT } from '../../src/config/index.js'
 
 function pseudonymizeId(pid) {

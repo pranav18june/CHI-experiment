@@ -1,8 +1,8 @@
-import { connectToDatabase } from '../lib/mongodb.js'
-import TelemetryEvent from '../models/TelemetryEvent.js'
-import TrialResult from '../models/TrialResult.js'
-import ParticipantMode from '../models/ParticipantMode.js'
-import ParticipantTrialPlan from '../models/ParticipantTrialPlan.js'
+import { connectToDatabase } from '../../lib/mongodb.js'
+import TelemetryEvent from '../../lib/models/TelemetryEvent.js'
+import TrialResult from '../../lib/models/TrialResult.js'
+import ParticipantMode from '../../lib/models/ParticipantMode.js'
+import ParticipantTrialPlan from '../../lib/models/ParticipantTrialPlan.js'
 
 const SCORED_TRIAL_TOTAL = 12
 

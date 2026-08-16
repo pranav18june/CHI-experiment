@@ -42,22 +42,23 @@ The following empirical parameters were implemented as working placeholders and 
 
 ```
 decision-study-platform/
-├── api/                        # Serverless backend endpoints
+├── api/                        # Serverless backend endpoints (6 functions)
 │   ├── admin/
 │   │   ├── export.js           # De-identified CSV/JSON dataset export API with manifest
 │   │   ├── participants.js     # Real-time admin monitoring & 2x4 matrix aggregation
 │   │   ├── reclaim-abandoned.js# Inactive slot reclamation & ModeCounter reconciler
 │   │   └── withdraw.js         # IRB-compliant participant data purge API
-│   ├── lib/mongodb.js          # Cached MongoDB connection pool
-│   ├── models/                 # Mongoose schema definitions with strict enums
-│   │   ├── ModeCounter.js      # 2x4 Factorial condition & schedule counter
-│   │   ├── ParticipantMode.js  # Participant condition records & lifecycle status
-│   │   ├── ParticipantTrialPlan.js # Latin-square trial plans with stimulus snapshots
-│   │   ├── PostTaskResponse.js # Post-task questionnaire responses & version stamps
-│   │   ├── TelemetryEvent.js   # Raw interaction event stream
-│   │   └── TrialResult.js      # Scored trial outcomes (WoA, Regret, Enums)
 │   ├── assign-mode.js          # Min-count stratified condition & schedule assignment
 │   └── telemetry/index.js      # Server-side validation, advice resolution, & bulk ingestion
+├── lib/                        # Serverless helper modules (not compiled as Vercel functions)
+│   ├── mongodb.js              # Cached MongoDB connection pool
+│   └── models/                 # Mongoose schema definitions with strict enums
+│       ├── ModeCounter.js      # 2x4 Factorial condition & schedule counter
+│       ├── ParticipantMode.js  # Participant condition records & lifecycle status
+│       ├── ParticipantTrialPlan.js # Latin-square trial plans with stimulus snapshots
+│       ├── PostTaskResponse.js # Post-task questionnaire responses & version stamps
+│       ├── TelemetryEvent.js   # Raw interaction event stream
+│       └── TrialResult.js      # Scored trial outcomes (WoA, Regret, Enums)
 ├── src/                        # React client SPA
 │   ├── components/
 │   │   ├── common/             # NumberLineInput (WCAG AA), Scale, ChoiceList, Header

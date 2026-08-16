@@ -1,10 +1,10 @@
-import { connectToDatabase } from '../lib/mongodb.js'
-import ParticipantMode from '../models/ParticipantMode.js'
-import ParticipantTrialPlan from '../models/ParticipantTrialPlan.js'
-import TelemetryEvent from '../models/TelemetryEvent.js'
-import TrialResult from '../models/TrialResult.js'
-import PostTaskResponse from '../models/PostTaskResponse.js'
-import ModeCounter from '../models/ModeCounter.js'
+import { connectToDatabase } from '../../lib/mongodb.js'
+import ParticipantMode from '../../lib/models/ParticipantMode.js'
+import ParticipantTrialPlan from '../../lib/models/ParticipantTrialPlan.js'
+import TelemetryEvent from '../../lib/models/TelemetryEvent.js'
+import TrialResult from '../../lib/models/TrialResult.js'
+import PostTaskResponse from '../../lib/models/PostTaskResponse.js'
+import ModeCounter from '../../lib/models/ModeCounter.js'
 
 /**
  * Participant Data Withdrawal & Purge API (IRB Compliance)

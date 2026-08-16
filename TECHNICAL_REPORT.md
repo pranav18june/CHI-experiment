@@ -183,7 +183,7 @@ The SCDRP architecture follows a modular **Clean Layered Architecture**:
    - High-throughput client event logger with passive DOM tracking (scrolls, chart dwell, focus changes) and a localStorage-backed offline queue.
 4. **API Gateway & Micro-Endpoints Layer (`api/`):**
    - Serverless functions handling condition balancing, trial plan resolution, server-side bounds validation, batch telemetry ingestion, de-identified export, slot reclamation, and participant withdrawal.
-5. **Persistence & Data Model Layer (`api/models/`, `api/lib/mongodb.js`):**
+5. **Persistence & Data Model Layer (`lib/models/`, `lib/mongodb.js`):**
    - Mongoose schemas with strict enums, compound unique indexes, version metadata, and cached connection pooling.
 
 ---
@@ -192,24 +192,23 @@ The SCDRP architecture follows a modular **Clean Layered Architecture**:
 
 ```
 decision-study-platform/
-├── api/                                # Serverless Backend Endpoints
+├── api/                                # Serverless Backend Endpoints (6 functions)
 │   ├── admin/
 │   │   ├── export.js                  # De-identified CSV/JSON dataset export API with manifest
 │   │   ├── participants.js            # Real-time admin monitoring & 2x4 matrix aggregation
 │   │   ├── reclaim-abandoned.js       # Inactive slot reclamation & ModeCounter reconciler
 │   │   └── withdraw.js                # IRB-compliant participant data purge API
-│   ├── lib/
-│   │   └── mongodb.js                 # Cached serverless MongoDB client pool
-│   ├── models/
-│   │   ├── ModeCounter.js             # 2x4 Factorial condition & schedule counter schema
-│   │   ├── ParticipantMode.js         # Participant condition records, status, & version stamps
-│   │   ├── ParticipantTrialPlan.js    # Latin-square trial plans with stimulus snapshots
-│   │   ├── PostTaskResponse.js        # NASA-TLX, Numeracy, Domain analytics model
-│   │   ├── TelemetryEvent.js          # Raw event log stream (JAS envelopes)
-│   │   └── TrialResult.js             # Scored trial outcomes (WoA, Regret, Enums, Weights)
 │   ├── assign-mode.js                 # Stratified 2x4 condition & schedule assignment API
-│   └── telemetry/
-│       └── index.js                   # Server-side bounds validation, advice resolution, bulk ingestion
+│   └── telemetry/index.js             # Telemetry ingestion, advice calculation, & validation API
+├── lib/                                # Serverless helper modules (outside api/ to bypass Vercel 12-function limit)
+│   ├── mongodb.js                     # Cached serverless MongoDB client pool
+│   └── models/                        # Mongoose schema definitions
+│       ├── ModeCounter.js             # 2x4 Factorial condition & schedule counter schema
+│       ├── ParticipantMode.js         # Participant condition records, status, & version stamps
+│       ├── ParticipantTrialPlan.js    # Latin-square trial plans with stimulus snapshots
+│       ├── PostTaskResponse.js        # NASA-TLX, Numeracy, Domain analytics model
+│       ├── TelemetryEvent.js          # Raw event log stream (JAS envelopes)
+│       └── TrialResult.js             # Scored trial outcomes (WoA, Regret, Enums, Weights)
 ├── src/                                # Frontend Single-Page Application
 │   ├── components/
 │   │   ├── common/
