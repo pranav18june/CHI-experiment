@@ -9,9 +9,10 @@ import { normalizeNumericInput } from '../services/validationService.js'
 const AUTOSAVE_STORAGE_KEY = 'study-session-autosave-v1'
 const MAX_RESUME_WINDOW_MS = 24 * 60 * 60 * 1000 // 24-hour single-session resume window
 
-// ── Experimental Conditions (c0 / c1 / c2 / c3) ──────────────────────────────
+// ── 2×4 Factorial Design Constants ───────────────────────────────────────────
 export const CONDITIONS = ['c0', 'c1', 'c2', 'c3']
-const CONDITION_COUNTER_KEY = 'study-condition-counter-v1' // client-side offline fallback counter
+export const PARTICIPANT_TYPES = ['novice', 'expert']
+const CONDITION_COUNTER_KEY = 'study-condition-counter-v2' // local 2x4 offline counter
 
 /**
  * Maps each study phase to its canonical URL path.
@@ -47,17 +48,23 @@ export const PATH_TO_PHASE = {
 }
 
 /**
- * Client-side offline fallback balancer across all 4 conditions (c0, c1, c2, c3).
- * Applies the min-count algorithm using a localStorage counter.
+ * Client-side offline fallback balancer across all 4 conditions (c0–c3)
+ * independently within each expertise group (novice vs. expert).
  */
-function assignConditionFallback() {
+function assignConditionFallback(participantType = 'novice') {
+  const group = participantType === 'expert' ? 'expert' : 'novice'
   try {
     const raw = localStorage.getItem(CONDITION_COUNTER_KEY)
-    const counts = raw ? JSON.parse(raw) : { c0: 0, c1: 0, c2: 0, c3: 0 }
-    const minCount = Math.min(...CONDITIONS.map((c) => counts[c] ?? 0))
-    const tied = CONDITIONS.filter((c) => (counts[c] ?? 0) === minCount)
+    const counts = raw ? JSON.parse(raw) : {
+      novice: { c0: 0, c1: 0, c2: 0, c3: 0 },
+      expert: { c0: 0, c1: 0, c2: 0, c3: 0 },
+    }
+    if (!counts[group]) counts[group] = { c0: 0, c1: 0, c2: 0, c3: 0 }
+    const groupCounts = counts[group]
+    const minCount = Math.min(...CONDITIONS.map((c) => groupCounts[c] ?? 0))
+    const tied = CONDITIONS.filter((c) => (groupCounts[c] ?? 0) === minCount)
     const chosen = tied[Math.floor(Math.random() * tied.length)]
-    counts[chosen] = (counts[chosen] ?? 0) + 1
+    counts[group][chosen] = (groupCounts[chosen] ?? 0) + 1
     localStorage.setItem(CONDITION_COUNTER_KEY, JSON.stringify(counts))
     return chosen
   } catch {
@@ -86,7 +93,7 @@ export function StudyProvider({ children }) {
   )
   const [participantType, setParticipantType] = useState('novice')
 
-  // ── Condition (c0 / c1 / c2 / c3) — assigned at consent, balanced & immutable
+  // ── Condition (c0 / c1 / c2 / c3) — assigned at participant-type stage ────
   const [condition, setCondition] = useState(() => {
     try {
       const saved = localStorage.getItem(AUTOSAVE_STORAGE_KEY)
@@ -233,39 +240,46 @@ export function StudyProvider({ children }) {
     setFetchedExplanation(null)
   }
 
-  async function fetchCondition(pid) {
+  /**
+   * Fetches condition assignment balanced within the participant's own expertise group.
+   */
+  async function fetchConditionForGroup(pid, groupType) {
     try {
       const response = await fetch('/api/assign-mode', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ participantId: pid }),
+        body: JSON.stringify({ participantId: pid, participantType: groupType }),
       })
       if (response.ok) {
         const data = await response.json()
         const assignedCond = data.condition || data.surveyMode
         if (CONDITIONS.includes(assignedCond)) {
           setCondition(assignedCond)
-          telemetry.setSessionIdentity({ condition: assignedCond })
+          telemetry.setSessionIdentity({ condition: assignedCond, participantType: groupType })
           return assignedCond
         }
       }
     } catch {}
-    const fallback = assignConditionFallback()
+    const fallback = assignConditionFallback(groupType)
     setCondition(fallback)
-    telemetry.setSessionIdentity({ condition: fallback })
+    telemetry.setSessionIdentity({ condition: fallback, participantType: groupType })
     return fallback
   }
 
   // ── Handlers ───────────────────────────────────────────────────────────────
-  async function handleConsentSubmit(demographics) {
+
+  // Step 1: Consent submitted on '/' -> Advance to '/type' (condition not yet assigned)
+  function handleConsentSubmit(demographics) {
     telemetry.recordConsent(demographics)
-    await fetchCondition(participantId)
     setPhase('participant-type')
   }
 
-  function handleParticipantTypeSelect(selectedType) {
+  // Step 2: Expertise selected on '/type' -> Assign condition balanced WITHIN group
+  async function handleParticipantTypeSelect(selectedType) {
     setParticipantType(selectedType)
-    telemetry.recordParticipantType(selectedType, condition)
+    // 2x4 balancing: assign condition within Novice vs Expert group
+    const assignedCondition = await fetchConditionForGroup(participantId, selectedType)
+    telemetry.recordParticipantType(selectedType, assignedCondition)
     setPhase(selectedType === 'novice' ? 'training' : 'walkthrough')
   }
 
@@ -410,7 +424,7 @@ export function StudyProvider({ children }) {
 
   const value = {
     participantId, participantType, condition,
-    surveyMode: condition, // Alias for backward compatibility
+    surveyMode: condition,
     phase, setPhase,
     isPractice, trialIndex, trialStep,
     trial, type, totalTrials, trialNumber, isLastTrial, progress,

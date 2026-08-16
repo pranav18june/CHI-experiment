@@ -12,14 +12,9 @@ const SCORED_TRIAL_TOTAL = 12
  * Header: x-admin-secret: <ADMIN_SECRET env var, default: "study-admin">
  *
  * Returns an aggregated summary of all participants for the research admin dashboard:
- *   - Global condition distribution stats (c0, c1, c2, c3)
+ *   - 2×4 Factorial breakdown (Novice vs Expert × C0/C1/C2/C3)
+ *   - Global condition distribution stats
  *   - Per-participant session info, trial progress, and average WoA
- *
- * Conditions:
- *   c0: Baseline (recommendation-only, no explanation)
- *   c1: Numerical (driver attributions)
- *   c2: Narrative (verbal explanation)
- *   c3: Counterfactual (what-if verification explanation)
  */
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true')
@@ -40,11 +35,14 @@ export default async function handler(req, res) {
   try {
     await connectToDatabase()
 
-    // ── 1. Condition assignments from ParticipantMode ────────────────────────
+    // ── 1. Condition & Type assignments from ParticipantMode ─────────────────
     const modeRecords = await ParticipantMode.find({}).lean()
-    const conditionMap = {}
+    const modeMap = {}
     for (const r of modeRecords) {
-      conditionMap[r.participantId] = r.condition || r.surveyMode
+      modeMap[r.participantId] = {
+        condition: r.condition || r.surveyMode || 'c0',
+        participantType: r.participantType || 'novice',
+      }
     }
 
     // ── 2. Session info per participant from TelemetryEvent ──────────────────
@@ -98,16 +96,18 @@ export default async function handler(req, res) {
 
     const participants = []
     for (const pid of allIds) {
+      const modeRec = modeMap[pid] || {}
       const session = sessionAgg.find((s) => s._id === pid) || {}
       const trial   = trialMap[pid] || {}
       const tc      = trial.trialsCompleted || 0
       const phase   = screenMap[pid] || session.currentPhase || 'unknown'
-      const cond    = conditionMap[pid] || session.condition || 'c0'
+      const cond    = modeRec.condition || session.condition || 'c0'
+      const type    = modeRec.participantType || session.participantType || 'novice'
 
       participants.push({
         participantId:   pid,
         condition:       cond,
-        participantType: session.participantType || null,
+        participantType: type,
         sessionStarted:  session.sessionStarted  || null,
         lastSeen:        session.lastSeen        || null,
         currentPhase:    phase,
@@ -124,22 +124,34 @@ export default async function handler(req, res) {
     // Sort newest first
     participants.sort((a, b) => new Date(b.sessionStarted) - new Date(a.sessionStarted))
 
-    // ── 5. Compute global stats ───────────────────────────────────────────────
+    // ── 5. Compute 2×4 Factorial Matrix and global stats ──────────────────────
     const conditions = { c0: 0, c1: 0, c2: 0, c3: 0 }
+    const types      = { novice: 0, expert: 0 }
+    const matrix     = {
+      novice: { c0: 0, c1: 0, c2: 0, c3: 0 },
+      expert: { c0: 0, c1: 0, c2: 0, c3: 0 },
+    }
+
     let completed = 0
     let inProgress = 0
 
     for (const p of participants) {
-      if (p.condition && conditions[p.condition] !== undefined) {
-        conditions[p.condition]++
-      }
+      const g = p.participantType === 'expert' ? 'expert' : 'novice'
+      const c = p.condition && conditions[p.condition] !== undefined ? p.condition : 'c0'
+
+      types[g]++
+      conditions[c]++
+      matrix[g][c]++
+
       if (p.isComplete) completed++
       else if (p.trialsCompleted > 0 || (p.currentPhase && p.currentPhase !== 'consent')) inProgress++
     }
 
     const stats = {
       total:      participants.length,
+      types,
       conditions,
+      matrix,
       completed,
       inProgress,
       notStarted: participants.length - completed - inProgress,

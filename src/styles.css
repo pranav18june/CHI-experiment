@@ -108,7 +108,7 @@ h2 { font-size:15px; line-height:1.25; letter-spacing:-.02em; }
 .adm-kpi__label { font:600 11px/1.3 var(--mono); text-transform:uppercase; letter-spacing:.07em; color:var(--accent-dark); }
 .adm-kpi__sub { font-size:11px; color:var(--muted); margin-top:2px; }
 
-/* Distribution bar */
+/* Distribution bar & 2x4 Matrix */
 .adm-dist-section { background:var(--surface); border:1px solid var(--line); border-radius:9px; padding:16px 22px; margin-bottom:20px; }
 .adm-dist-label { font:600 11px/1 var(--mono); text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin:0 0 10px; }
 .adm-dist-bar { display:flex; height:28px; border-radius:6px; overflow:hidden; gap:2px; }
@@ -117,6 +117,20 @@ h2 { font-size:15px; line-height:1.25; letter-spacing:-.02em; }
 .adm-dist-segment--c1 { background:#0284c7; }
 .adm-dist-segment--c2 { background:#d97706; }
 .adm-dist-segment--c3 { background:#7c3aed; }
+
+.adm-matrix-section { background:var(--surface); border:1px solid var(--line); border-radius:9px; padding:16px 22px; margin-bottom:20px; }
+.adm-matrix-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+.adm-matrix-badge { background:#e8f5e9; color:#2e7d32; font:600 10px/1.2 var(--mono); padding:3px 8px; border-radius:4px; border:1px solid #a5d6a7; text-transform:uppercase; letter-spacing:.05em; }
+.adm-matrix-table-wrap { overflow:auto; border:1px solid var(--line); border-radius:7px; }
+.adm-matrix-table { width:100%; border-collapse:collapse; font-size:12px; }
+.adm-matrix-table th { background:#f4f3ef; border-bottom:1px solid var(--line); padding:8px 12px; font:600 11px/1.2 var(--mono); text-transform:uppercase; color:var(--muted); text-align:center; }
+.adm-matrix-table th:first-child { text-align:left; }
+.adm-matrix-table td { padding:8px 12px; border-bottom:1px solid #f0f0ea; text-align:center; }
+.adm-matrix-table td:first-child { text-align:left; }
+.adm-matrix-type { font:500 12px var(--sans); color:var(--ink); }
+.adm-matrix-num { font:600 13px/1 var(--mono); color:var(--ink); }
+.adm-matrix-total { font:600 12px var(--mono); color:var(--accent-dark); background:#fafaf6; }
+.adm-matrix-footer-row td { background:#f4f3ef; border-top:1px solid var(--line); font:600 12px var(--mono); color:var(--ink); }
 
 /* Filters */
 .adm-filters { display:flex; align-items:center; gap:10px; margin-bottom:14px; flex-wrap:wrap; }

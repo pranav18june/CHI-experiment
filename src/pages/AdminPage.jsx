@@ -155,6 +155,7 @@ export default function AdminPage() {
   // Table controls
   const [sortField, setSortField] = useState('sessionStarted')
   const [sortDir, setSortDir] = useState('desc')
+  const [filterType, setFilterType] = useState('all')
   const [filterCondition, setFilterCondition] = useState('all')
   const [filterStatus, setFilterStatus] = useState('all')
   const [search, setSearch] = useState('')
@@ -205,6 +206,7 @@ export default function AdminPage() {
     if (!data?.participants) return []
     let list = [...data.participants]
 
+    if (filterType !== 'all')      list = list.filter((p) => p.participantType === filterType)
     if (filterCondition !== 'all') list = list.filter((p) => p.condition === filterCondition)
     if (filterStatus === 'complete')   list = list.filter((p) => p.isComplete)
     if (filterStatus === 'active')     list = list.filter((p) => !p.isComplete && p.trialsCompleted > 0)
@@ -223,7 +225,7 @@ export default function AdminPage() {
     })
 
     return list
-  }, [data, filterCondition, filterStatus, search, sortField, sortDir])
+  }, [data, filterType, filterCondition, filterStatus, search, sortField, sortDir])
 
   function toggleSort(field) {
     if (sortField === field) setSortDir((d) => d === 'asc' ? 'desc' : 'asc')
@@ -235,6 +237,10 @@ export default function AdminPage() {
   }
 
   const { stats } = data || {}
+  const matrix = stats?.matrix || {
+    novice: { c0: 0, c1: 0, c2: 0, c3: 0 },
+    expert: { c0: 0, c1: 0, c2: 0, c3: 0 },
+  }
 
   return (
     <div className="adm-shell">
@@ -279,17 +285,17 @@ export default function AdminPage() {
             <KpiCard
               label="Total participants"
               value={stats.total}
-              sub={`${stats.completed} complete · ${stats.inProgress} in progress`}
+              sub={`${stats.completed} complete · ${stats.inProgress} active`}
+            />
+            <KpiCard
+              label="Novices vs. Experts"
+              value={`${stats.types?.novice ?? 0} · ${stats.types?.expert ?? 0}`}
+              sub="Novice Students · Domain Experts"
             />
             <KpiCard
               label="Conditions C0 · C1 · C2 · C3"
-              value={`${stats.conditions.c0} · ${stats.conditions.c1} · ${stats.conditions.c2} · ${stats.conditions.c3}`}
+              value={`${stats.conditions?.c0 ?? 0} · ${stats.conditions?.c1 ?? 0} · ${stats.conditions?.c2 ?? 0} · ${stats.conditions?.c3 ?? 0}`}
               sub="Baseline · Drivers · Narrative · Counterfactual"
-            />
-            <KpiCard
-              label="Active Sessions"
-              value={stats.inProgress}
-              sub={`${stats.notStarted} not yet started`}
             />
             <KpiCard
               label="Completion rate"
@@ -299,26 +305,58 @@ export default function AdminPage() {
           </section>
         )}
 
-        {/* ── 4-Way Condition distribution bar ── */}
-        {stats && stats.total > 0 && (
-          <section className="adm-dist-section">
-            <p className="adm-dist-label">Condition Distribution (4-Way Balance)</p>
-            <div className="adm-dist-bar">
-              {['c0', 'c1', 'c2', 'c3'].map((c) => {
-                const count = stats.conditions[c] ?? 0
-                const pct = Math.round((count / stats.total) * 100)
-                const short = c.toUpperCase()
-                return (
-                  <div
-                    key={c}
-                    className={`adm-dist-segment adm-dist-segment--${c}`}
-                    style={{ width: `${pct}%` }}
-                    title={`${CONDITION_LABELS[c]}: ${count} (${pct}%)`}
-                  >
-                    {pct >= 8 ? `${short} (${count})` : ''}
-                  </div>
-                )
-              })}
+        {/* ── 2×4 Factorial Design Matrix ── */}
+        {stats && (
+          <section className="adm-matrix-section">
+            <div className="adm-matrix-header">
+              <span className="adm-dist-label" style={{ margin: 0 }}>
+                2×4 Factorial Design Per-Cell Depth Matrix (Expertise × Condition)
+              </span>
+              <span className="adm-matrix-badge">Balanced Within Groups</span>
+            </div>
+            <div className="adm-matrix-table-wrap">
+              <table className="adm-matrix-table">
+                <thead>
+                  <tr>
+                    <th>Expertise Group</th>
+                    <th>C0 (Baseline)</th>
+                    <th>C1 (Numerical)</th>
+                    <th>C2 (Narrative)</th>
+                    <th>C3 (Counterfactual)</th>
+                    <th>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td className="adm-matrix-type"><strong>Novice</strong> (Students)</td>
+                    <td><span className="adm-matrix-num">{matrix.novice.c0}</span></td>
+                    <td><span className="adm-matrix-num">{matrix.novice.c1}</span></td>
+                    <td><span className="adm-matrix-num">{matrix.novice.c2}</span></td>
+                    <td><span className="adm-matrix-num">{matrix.novice.c3}</span></td>
+                    <td className="adm-matrix-total">
+                      {matrix.novice.c0 + matrix.novice.c1 + matrix.novice.c2 + matrix.novice.c3}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="adm-matrix-type"><strong>Expert</strong> (Practitioners)</td>
+                    <td><span className="adm-matrix-num">{matrix.expert.c0}</span></td>
+                    <td><span className="adm-matrix-num">{matrix.expert.c1}</span></td>
+                    <td><span className="adm-matrix-num">{matrix.expert.c2}</span></td>
+                    <td><span className="adm-matrix-num">{matrix.expert.c3}</span></td>
+                    <td className="adm-matrix-total">
+                      {matrix.expert.c0 + matrix.expert.c1 + matrix.expert.c2 + matrix.expert.c3}
+                    </td>
+                  </tr>
+                  <tr className="adm-matrix-footer-row">
+                    <td><strong>Total</strong></td>
+                    <td><strong>{stats.conditions?.c0 ?? 0}</strong></td>
+                    <td><strong>{stats.conditions?.c1 ?? 0}</strong></td>
+                    <td><strong>{stats.conditions?.c2 ?? 0}</strong></td>
+                    <td><strong>{stats.conditions?.c3 ?? 0}</strong></td>
+                    <td><strong>{stats.total}</strong></td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </section>
         )}
@@ -333,6 +371,16 @@ export default function AdminPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
+          <select
+            id="adm-filter-type"
+            className="adm-filter-select"
+            value={filterType}
+            onChange={(e) => setFilterType(e.target.value)}
+          >
+            <option value="all">All expertise types</option>
+            <option value="novice">Novice</option>
+            <option value="expert">Expert</option>
+          </select>
           <select
             id="adm-filter-condition"
             className="adm-filter-select"
@@ -424,7 +472,7 @@ export default function AdminPage() {
         </div>
 
         <p className="adm-footer">
-          Auto-refreshes every 60 s · Data from MongoDB · Admin session not persisted across tabs
+          Auto-refreshes every 60 s · Data from MongoDB · 2×4 Factorial between-subjects design
         </p>
       </div>
     </div>
