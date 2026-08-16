@@ -1,7 +1,5 @@
 import mongoose from 'mongoose'
 
-const MONGODB_URI = process.env.MONGODB_URI
-
 /**
  * Global connection cache across Vercel Lambda invocations.
  * Prevents exhausting MongoDB Atlas connection limits under high concurrency (500+ users).
@@ -13,11 +11,12 @@ if (!cached) {
 }
 
 export async function connectToDatabase() {
-  if (!MONGODB_URI) {
+  const uri = process.env.MONGODB_URI
+  if (!uri) {
     throw new Error('Please define the MONGODB_URI environment variable inside Vercel Project Settings')
   }
 
-  if (cached.conn) {
+  if (cached.conn && mongoose.connection.readyState === 1) {
     return cached.conn
   }
 
@@ -29,7 +28,7 @@ export async function connectToDatabase() {
       socketTimeoutMS: 45000,
     }
 
-    cached.promise = mongoose.connect(MONGODB_URI, opts).then((m) => m)
+    cached.promise = mongoose.connect(uri, opts).then((m) => m)
   }
 
   try {

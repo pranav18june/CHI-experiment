@@ -16,7 +16,7 @@ const TrialPlanItemSchema = new mongoose.Schema(
 
     // Stimulus Snapshot (ensures exact stimulus reproducibility)
     title:              { type: String, default: '' },
-    decisionPrompt:     { type: String, default: '' },
+    decisionPrompt:     { type: mongoose.Schema.Types.Mixed, default: '' },
     context:            { type: String, default: '' },
     explanation:        { type: String, default: null }, // Null for C0 baseline
     stimulusContentHash:{ type: String, default: '' },
