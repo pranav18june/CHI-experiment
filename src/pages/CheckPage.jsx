@@ -1,13 +1,25 @@
 import React from 'react'
 import { useStudyContext } from '../context/StudyContext.jsx'
-import { ComprehensionCheck } from '../components/pages/OrientationPages.jsx'
+import ComprehensionCheck from '../components/training/ComprehensionCheck.jsx'
 
 /**
- * CheckPage — one-question comprehension check for novice participants.
- * Must answer correctly before the practice round begins.
+ * CheckPage — 4-Item Novice Comprehension Check (Protocol Appendix C.1).
+ *
+ * Novices must pass all 4 items to unlock the practice round.
+ * Exactly 1 retry is permitted; failing twice results in pre-registered exclusion.
  */
 export default function CheckPage() {
-  const { handleCheckComplete } = useStudyContext()
+  const {
+    handleComprehensionPass,
+    handleComprehensionFail,
+    handleComprehensionExclude,
+  } = useStudyContext()
 
-  return <ComprehensionCheck onContinue={handleCheckComplete} />
+  return (
+    <ComprehensionCheck
+      onPass={handleComprehensionPass}
+      onFail={handleComprehensionFail}
+      onExclude={handleComprehensionExclude}
+    />
+  )
 }

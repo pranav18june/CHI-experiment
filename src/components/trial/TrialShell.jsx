@@ -101,6 +101,7 @@ export function TrialShell({
           {trialStep === 1 && (
             <Step1
               type={type}
+              trial={trial}
               initialEstimate={initialEstimate}
               onInitialEstimate={onInitialEstimate}
               initialConfidence={initialConfidence}
@@ -129,6 +130,7 @@ export function TrialShell({
           {trialStep === 4 && (
             <Step4
               type={type}
+              trial={trial}
               finalEstimate={finalEstimate}
               onFinalEstimate={onFinalEstimate}
               finalConfidence={finalConfidence}

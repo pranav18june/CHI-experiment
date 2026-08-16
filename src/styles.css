@@ -187,3 +187,59 @@ h2 { font-size:15px; line-height:1.25; letter-spacing:-.02em; }
 
 @media(max-width:900px) { .adm-kpi-row { grid-template-columns:repeat(2,1fr); } }
 @media(max-width:560px) { .adm-kpi-row { grid-template-columns:1fr; } .adm-filters { flex-direction:column; align-items:stretch; } .adm-row-count { margin-left:0; } }
+
+/* ── Interactive Number-Line Component (Protocol §5.9) ─────────────────────── */
+.number-line-component { display:grid; gap:12px; margin:4px 0 14px; }
+.number-line-header { display:flex; align-items:center; gap:10px; }
+.number-line-track-wrap { position:relative; padding:12px 8px 24px; user-select:none; }
+.number-line-track { position:relative; height:10px; background:#e8e8df; border-radius:99px; border:1px solid #d6d6cb; }
+.number-line-fill { position:absolute; left:0; top:0; bottom:0; background:var(--accent); border-radius:99px; pointer-events:none; }
+
+.number-line-anchor { position:absolute; top:-7px; transform:translateX(-50%); display:flex; flex-direction:column; align-items:center; pointer-events:none; z-index:2; }
+.number-line-anchor::before { content:''; width:2px; height:24px; background:var(--warm); border-radius:1px; }
+.number-line-anchor-label { font:600 9px/1.2 var(--mono); color:var(--warm); text-transform:uppercase; letter-spacing:.04em; margin-top:3px; white-space:nowrap; }
+
+.number-line-slider {
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  background:transparent;
+  -webkit-appearance:none;
+  appearance:none;
+  cursor:pointer;
+  margin:0;
+  z-index:3;
+}
+.number-line-slider::-webkit-slider-runnable-track { background:transparent; }
+.number-line-slider::-moz-range-track { background:transparent; }
+.number-line-slider::-webkit-slider-thumb {
+  -webkit-appearance:none;
+  appearance:none;
+  width:22px;
+  height:22px;
+  border-radius:50%;
+  background:var(--surface);
+  border:2.5px solid var(--accent-dark);
+  box-shadow:0 1px 4px rgba(0,0,0,.2);
+  cursor:pointer;
+  transition:transform .1s ease, border-color .1s ease;
+}
+.number-line-slider::-webkit-slider-thumb:hover {
+  transform:scale(1.15);
+  border-color:var(--accent);
+}
+.number-line-slider::-moz-range-thumb {
+  width:22px;
+  height:22px;
+  border-radius:50%;
+  background:var(--surface);
+  border:2.5px solid var(--accent-dark);
+  box-shadow:0 1px 4px rgba(0,0,0,.2);
+  cursor:pointer;
+}
+
+.number-line-ticks { position:relative; height:18px; margin-top:14px; }
+.number-line-tick { position:absolute; transform:translateX(-50%); display:flex; flex-direction:column; align-items:center; }
+.tick-mark { width:1px; height:6px; background:#b4b8ab; margin-bottom:4px; }
+.tick-label { font:500 10.5px/1 var(--mono); color:var(--muted); white-space:nowrap; }

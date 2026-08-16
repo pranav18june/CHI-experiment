@@ -31,6 +31,7 @@ export const PHASE_TO_PATH = {
   'post-task':          '/post-task',
   'debrief':            '/debrief',
   'complete':           '/complete',
+  'excluded':           '/excluded',
 }
 
 /**
@@ -47,6 +48,7 @@ export const PATH_TO_PHASE = {
   '/post-task':   'post-task',
   '/debrief':     'debrief',
   '/complete':    'complete',
+  '/excluded':    'excluded',
 }
 
 /**
@@ -99,6 +101,10 @@ export function StudyProvider({ children }) {
   )
   const [participantType, setParticipantType] = useState('novice')
 
+  // ── Novice Comprehension Check & Exclusion State (Appendix C.1) ─────────────
+  const [comprehensionPassed, setComprehensionPassed] = useState(false)
+  const [isExcluded, setIsExcluded] = useState(false)
+
   // ── Condition (c0 / c1 / c2 / c3) — assigned at participant-type stage ────
   const [condition, setCondition] = useState(() => {
     try {
@@ -131,9 +137,25 @@ export function StudyProvider({ children }) {
   const currentPathPhase = PATH_TO_PHASE[location.pathname] || 'consent'
   const [phase, setPhaseState] = useState(currentPathPhase)
 
-  // Sync phase with URL when URL changes
+  // Sync phase with URL when URL changes & enforce comprehension gating
   useEffect(() => {
     const matched = PATH_TO_PHASE[location.pathname]
+
+    // Gating 1: If excluded, lock to /excluded
+    if (isExcluded) {
+      if (location.pathname !== '/excluded') {
+        navigate('/excluded', { replace: true })
+      }
+      return
+    }
+
+    // Gating 2: If novice has not passed comprehension check, block /practice and /scored
+    if (participantType === 'novice' && !comprehensionPassed && (location.pathname === '/practice' || location.pathname === '/scored')) {
+      navigate('/check', { replace: true })
+      setPhaseState('check')
+      return
+    }
+
     if (matched && matched !== phase) {
       setPhaseState(matched)
       if (matched === 'scored') {
@@ -142,7 +164,7 @@ export function StudyProvider({ children }) {
         setIsPractice(true)
       }
     }
-  }, [location.pathname])
+  }, [location.pathname, isExcluded, comprehensionPassed, participantType, phase, navigate])
 
   const setPhase = useCallback((nextPhase) => {
     setPhaseState(nextPhase)
@@ -162,7 +184,7 @@ export function StudyProvider({ children }) {
   const [trialIndex, setTrialIndex] = useState(0)
   const [trialStep, setTrialStep] = useState(1)
 
-  // ── Step data ──────────────────────────────────────────────────────────────
+  // ── Step data ────────────────────────────────────────────────────────────
   const [initialEstimate, setInitialEstimate] = useState('')
   const [initialConfidence, setInitialConfidence] = useState(null)
   const [verificationResponse, setVerificationResponse] = useState(null)
@@ -204,6 +226,8 @@ export function StudyProvider({ children }) {
           if (parsed.participantType) setParticipantType(parsed.participantType)
           if (parsed.condition && CONDITIONS.includes(parsed.condition)) setCondition(parsed.condition)
           if (parsed.trialPlan) setTrialPlan(parsed.trialPlan)
+          if (typeof parsed.comprehensionPassed === 'boolean') setComprehensionPassed(parsed.comprehensionPassed)
+          if (typeof parsed.isExcluded === 'boolean') setIsExcluded(parsed.isExcluded)
           if (typeof parsed.isPractice === 'boolean') setIsPractice(parsed.isPractice)
           if (typeof parsed.trialIndex === 'number') setTrialIndex(parsed.trialIndex)
           if (typeof parsed.trialStep === 'number') setTrialStep(parsed.trialStep)
@@ -224,11 +248,13 @@ export function StudyProvider({ children }) {
     try {
       localStorage.setItem(AUTOSAVE_STORAGE_KEY, JSON.stringify({
         participantId, participantType, phase, condition, trialPlan,
+        comprehensionPassed, isExcluded,
         isPractice, trialIndex, trialStep, initialEstimate, initialConfidence,
         savedAt: Date.now(),
       }))
     } catch {}
   }, [participantId, participantType, phase, condition, trialPlan,
+      comprehensionPassed, isExcluded,
       isPractice, trialIndex, trialStep, initialEstimate, initialConfidence])
 
   // ── Telemetry ──────────────────────────────────────────────────────────────
@@ -308,6 +334,9 @@ export function StudyProvider({ children }) {
   // Step 2: Expertise selected on '/type' -> Assign condition balanced WITHIN group
   async function handleParticipantTypeSelect(selectedType) {
     setParticipantType(selectedType)
+    if (selectedType === 'expert') {
+      setComprehensionPassed(true) // Experts bypass novice check
+    }
     // 2x4 balancing & counterbalanced trial plan assignment
     const assignedCondition = await fetchConditionForGroup(participantId, selectedType)
     telemetry.recordParticipantType(selectedType, assignedCondition)
@@ -324,8 +353,37 @@ export function StudyProvider({ children }) {
     beginPractice()
   }
 
-  function handleCheckComplete() {
+  // ── Comprehension Check Handlers (Protocol Appendix C.1) ───────────────────
+  function handleComprehensionPass(results) {
+    setComprehensionPassed(true)
+    telemetry.recordEvent(EventType.COMPREHENSION_CHECK_PASSED, {
+      attempt: results.attempt,
+      score: results.score,
+      total: 4,
+      answers: results.answers,
+    })
     beginPractice()
+  }
+
+  function handleComprehensionFail(results) {
+    telemetry.recordEvent(EventType.COMPREHENSION_CHECK_FAILED, {
+      attempt: results.attempt,
+      score: results.score,
+      total: 4,
+      answers: results.answers,
+    })
+  }
+
+  function handleComprehensionExclude(results) {
+    setIsExcluded(true)
+    telemetry.recordEvent(EventType.PARTICIPANT_EXCLUDED, {
+      reason: 'COMPREHENSION_CHECK_FAILED_TWICE',
+      attempt: 2,
+      finalScore: results.score,
+      total: 4,
+      answers: results.answers,
+    })
+    setPhase('excluded')
   }
 
   function beginPractice() {
@@ -373,7 +431,6 @@ export function StudyProvider({ children }) {
         setCurrentIsCorrect(data.isCorrect)
         setCurrentErrorDirection(data.errorDirection)
       } else {
-        // Fallback to local plan / scenario values
         const planItem = !isPractice && trialPlan ? trialPlan.find((t) => t.trialId === trial.id) : null
         const isCorr = isPractice ? true : (planItem ? planItem.isCorrect : false)
         const errDir = isPractice ? 'na' : (planItem ? planItem.errorDirection : 'high')
@@ -479,6 +536,7 @@ export function StudyProvider({ children }) {
 
   const value = {
     participantId, participantType, condition, trialPlan,
+    comprehensionPassed, isExcluded,
     surveyMode: condition,
     phase, setPhase,
     isPractice, trialIndex, trialStep,
@@ -495,7 +553,9 @@ export function StudyProvider({ children }) {
     handleParticipantTypeSelect,
     handleTrainingComplete,
     handleWalkthroughComplete,
-    handleCheckComplete,
+    handleComprehensionPass,
+    handleComprehensionFail,
+    handleComprehensionExclude,
     submitInitialEstimate,
     acknowledgeAI,
     submitVerification,

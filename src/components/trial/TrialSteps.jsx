@@ -1,9 +1,13 @@
 import React, { useState } from 'react'
 import Scale from '../common/Scale.jsx'
+import NumberLineInput from '../common/NumberLineInput.jsx'
 import { validateNumericEstimate, validateVerificationResponse } from '../../services/validationService.js'
 
-// TODO_NUMBERLINE_INPUT: Future iterations of the study protocol may replace the numeric text input with an interactive number line component.
-export function Step1({ type, initialEstimate, onInitialEstimate, initialConfidence, onInitialConfidence, onSubmit }) {
+/**
+ * Step 1 — Initial independent participant estimate (before AI reveal).
+ * Interactive Protocol §5.9 Number-Line & Slider Input anchored to historical baseline.
+ */
+export function Step1({ type, trial, initialEstimate, onInitialEstimate, initialConfidence, onInitialConfidence, onSubmit }) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const validation = validateNumericEstimate(initialEstimate)
   const canSubmit = validation.isValid && initialConfidence !== null && !isSubmitting
@@ -18,20 +22,20 @@ export function Step1({ type, initialEstimate, onInitialEstimate, initialConfide
   return (
     <form className="decision-form" onSubmit={handleSubmit}>
       <label htmlFor="initial-decision">{type.initialPrompt}</label>
-      <div className="money-input">
-        <span>$</span>
-        <input
-          id="initial-decision"
-          type="text"
-          inputMode="numeric"
-          value={initialEstimate}
-          onChange={(e) => onInitialEstimate(e.target.value)}
-          placeholder="Enter your estimate"
-          autoComplete="off"
-          autoFocus
-        />
-      </div>
-      <p className="field-note">Enter a dollar amount (e.g. 15,000 or $15000). The AI recommendation is not yet visible.</p>
+      
+      <NumberLineInput
+        id="initial-decision"
+        value={initialEstimate}
+        onChange={onInitialEstimate}
+        scenario={trial}
+        placeholder="Select or enter your estimate"
+        autoFocus
+      />
+
+      <p className="field-note">
+        Use the number line scale or type a dollar value. The AI recommendation is not yet visible.
+      </p>
+      
       <Scale
         label="How confident are you in this estimate?"
         low="Not at all confident"
@@ -46,6 +50,9 @@ export function Step1({ type, initialEstimate, onInitialEstimate, initialConfide
   )
 }
 
+/**
+ * Step 2 — AI Recommendation and Condition Explanation reveal.
+ */
 export function Step2({ condition, explanation, onContinue, isFetchingAdvice }) {
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -91,13 +98,15 @@ export function Step2({ condition, explanation, onContinue, isFetchingAdvice }) 
   )
 }
 
-// TODO_VERIFICATION_COPY: Prompt copy for the verification check is based on protocol v4.1 section 4.3 ("Compared with the historical information, the AI recommendation appears: Too High / About Right / Too Low").
 const VERIFICATION_OPTIONS = [
   { value: 'too_high',    label: 'Too High' },
   { value: 'about_right', label: 'About Right' },
   { value: 'too_low',     label: 'Too Low' },
 ]
 
+/**
+ * Step 3 — Verification Check.
+ */
 export function Step3({ verificationResponse, onVerification, onSubmit }) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const isValid = validateVerificationResponse(verificationResponse)
@@ -138,8 +147,13 @@ export function Step3({ verificationResponse, onVerification, onSubmit }) {
   )
 }
 
+/**
+ * Step 4 — Final estimate submission after viewing AI advice.
+ * Interactive Protocol §5.9 Number-Line & Slider Input anchored to historical baseline.
+ */
 export function Step4({
   type,
+  trial,
   finalEstimate, onFinalEstimate,
   finalConfidence, onFinalConfidence,
   cognitiveLoad, onCognitiveLoad,
@@ -159,20 +173,20 @@ export function Step4({
   return (
     <form className="decision-form" onSubmit={handleSubmit}>
       <label htmlFor="final-decision">{type.decisionPrompt}</label>
-      <div className="money-input">
-        <span>$</span>
-        <input
-          id="final-decision"
-          type="text"
-          inputMode="numeric"
-          value={finalEstimate}
-          onChange={(e) => onFinalEstimate(e.target.value)}
-          placeholder="Enter your final decision"
-          autoComplete="off"
-          autoFocus
-        />
-      </div>
-      <p className="field-note">You may use or adjust the AI recommendation.</p>
+      
+      <NumberLineInput
+        id="final-decision"
+        value={finalEstimate}
+        onChange={onFinalEstimate}
+        scenario={trial}
+        placeholder="Select or enter your final decision"
+        autoFocus
+      />
+
+      <p className="field-note">
+        You may keep your original estimate, adopt the AI recommendation, or select any point on the scale.
+      </p>
+
       <Scale
         label="How confident are you in your final decision?"
         low="Not at all confident"

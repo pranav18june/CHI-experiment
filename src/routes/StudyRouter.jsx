@@ -11,22 +11,24 @@ import ScoredPage           from '../pages/ScoredPage.jsx'
 import PostTaskPage         from '../pages/PostTaskPage.jsx'
 import DebriefPage          from '../pages/DebriefPage.jsx'
 import CompletePage         from '../pages/CompletePage.jsx'
+import ExcludedPage         from '../pages/ExcludedPage.jsx'
 import AdminPage            from '../pages/AdminPage.jsx'
 
 /**
  * StudyRouter — declarative route table for the research study platform.
  *
- * Each study phase and administrative screen has a dedicated, direct URL:
+ * Each study phase and administrative screen has a dedicated URL:
  *   /            → Consent & Demographics
  *   /type        → Participant Type Selection
  *   /training    → Novice Workshop / Training
  *   /walkthrough → Expert Walkthrough
- *   /check       → Comprehension Check
- *   /practice    → Practice Trials & Feedback
- *   /scored      → Scored 12-Trial Protocol
+ *   /check       → 4-Item Novice Comprehension Check
+ *   /practice    → Practice Trials & Feedback (Gated)
+ *   /scored      → Scored 12-Trial Protocol (Gated)
  *   /post-task   → Post-Task Questionnaire
  *   /debrief     → Study Debrief
  *   /complete    → Completion Code
+ *   /excluded    → Pre-registered Exclusion Screen
  *   /admin       → Real-time Monitoring Dashboard
  */
 export function StudyRouter() {
@@ -42,6 +44,7 @@ export function StudyRouter() {
       <Route path="/post-task" element={<PostTaskPage />} />
       <Route path="/debrief" element={<DebriefPage />} />
       <Route path="/complete" element={<CompletePage />} />
+      <Route path="/excluded" element={<ExcludedPage />} />
       <Route path="/admin" element={<AdminPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
