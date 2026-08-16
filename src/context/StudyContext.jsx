@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useMemo, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { trials, practiceTrials, studyTypes } from '../studyData.js'
 import telemetry, { EventType } from '../telemetry.js'
 import CONFIG from '../config/index.js'
@@ -15,7 +15,6 @@ const MODE_COUNTER_KEY = 'study-mode-counter-v1' // local fallback counter
 
 /**
  * Maps each study phase to its canonical URL path.
- * Used by the context to navigate when phase changes.
  */
 export const PHASE_TO_PATH = {
   'consent':            '/',
@@ -24,7 +23,7 @@ export const PHASE_TO_PATH = {
   'walkthrough':        '/walkthrough',
   'check':              '/check',
   'practice':           '/practice',
-  'practice-feedback':  '/practice',   // same route, different internal sub-state
+  'practice-feedback':  '/practice',
   'scored':             '/scored',
   'post-task':          '/post-task',
   'debrief':            '/debrief',
@@ -32,10 +31,21 @@ export const PHASE_TO_PATH = {
 }
 
 /**
- * Client-side fallback for mode assignment when the API is unreachable.
- * Applies the same min-count algorithm using a localStorage counter so
- * standalone (no-backend) deployments still get balanced assignments.
+ * Reverse mapping from URL path to phase.
  */
+export const PATH_TO_PHASE = {
+  '/':            'consent',
+  '/type':        'participant-type',
+  '/training':    'training',
+  '/walkthrough': 'walkthrough',
+  '/check':       'check',
+  '/practice':    'practice',
+  '/scored':      'scored',
+  '/post-task':   'post-task',
+  '/debrief':     'debrief',
+  '/complete':    'complete',
+}
+
 function assignModeFallback() {
   try {
     const raw = localStorage.getItem(MODE_COUNTER_KEY)
@@ -54,10 +64,6 @@ function assignModeFallback() {
 // ── Context Definition ────────────────────────────────────────────────────────
 const StudyContext = createContext(null)
 
-/**
- * Hook for consuming the study context inside any page or component.
- * Must be used within a <StudyProvider> tree.
- */
 export function useStudyContext() {
   const ctx = useContext(StudyContext)
   if (!ctx) throw new Error('useStudyContext must be used within <StudyProvider>')
@@ -66,51 +72,68 @@ export function useStudyContext() {
 
 // ── Provider ──────────────────────────────────────────────────────────────────
 
-/**
- * StudyProvider — global state container for the entire research study.
- *
- * Migrated from useStudyWorkflow.js. Contains:
- *   - Session identity (participantId, surveyMode, condition, participantType)
- *   - Phase state machine + URL synchronisation via useNavigate
- *   - Trial progression and step-level data collection
- *   - Autosave / resume recovery
- *   - All event handlers consumed by individual page components
- */
 export function StudyProvider({ children }) {
   const navigate = useNavigate()
+  const location = useLocation()
 
   // ── Session identity ───────────────────────────────────────────────────────
   const [participantId] = useState(() =>
     telemetry.sessionMetadata.participantId || telemetry._loadOrInitSession().participantId
   )
-  const [participantType, setParticipantType] = useState(null)
-  const [surveyMode, setSurveyMode] = useState(null) // 'T' | 'N' | 'C'
+  const [participantType, setParticipantType] = useState('novice')
+  const [surveyMode, setSurveyMode] = useState(() => {
+    try {
+      const saved = localStorage.getItem(AUTOSAVE_STORAGE_KEY)
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        if (parsed.surveyMode) return parsed.surveyMode
+      }
+    } catch {}
+    return 'T' // default fallback mode for direct page preview
+  })
 
-  // ── Phase (authoritative state machine) ────────────────────────────────────
-  const [phase, setPhaseState] = useState('consent')
+  // ── Phase derived directly from current URL path ────────────────────────────
+  const currentPathPhase = PATH_TO_PHASE[location.pathname] || 'consent'
+  const [phase, setPhaseState] = useState(currentPathPhase)
 
-  /**
-   * setPhase — updates internal phase AND navigates to the matching URL.
-   * Always use this instead of calling setPhaseState directly.
-   */
+  // Sync phase with URL when URL changes
+  useEffect(() => {
+    const matched = PATH_TO_PHASE[location.pathname]
+    if (matched && matched !== phase) {
+      setPhaseState(matched)
+      if (matched === 'scored') {
+        setIsPractice(false)
+      } else if (matched === 'practice') {
+        setIsPractice(true)
+      }
+    }
+  }, [location.pathname])
+
   const setPhase = useCallback((nextPhase) => {
     setPhaseState(nextPhase)
-    const path = PHASE_TO_PATH[nextPhase]
-    if (path) navigate(path)
-  }, [navigate])
+    if (nextPhase === 'scored') {
+      setIsPractice(false)
+    } else if (nextPhase === 'practice' || nextPhase === 'practice-feedback') {
+      setIsPractice(true)
+    }
+    const targetPath = PHASE_TO_PATH[nextPhase]
+    if (targetPath && location.pathname !== targetPath) {
+      navigate(targetPath)
+    }
+  }, [navigate, location.pathname])
 
-  // ── Experimental condition (assigned once, immutable) ─────────────────────
+  // ── Experimental condition ─────────────────────────────────────────────────
   const [condition] = useState(() => {
     const options = CONFIG.CONDITIONS
     return options[Math.floor(Math.random() * options.length)]
   })
 
   // ── Trial tracking ─────────────────────────────────────────────────────────
-  const [isPractice, setIsPractice] = useState(true)
+  const [isPractice, setIsPractice] = useState(() => location.pathname !== '/scored')
   const [trialIndex, setTrialIndex] = useState(0)
   const [trialStep, setTrialStep] = useState(1)
 
-  // ── Step data — NEVER pre-filled (no anchors) ──────────────────────────────
+  // ── Step data ──────────────────────────────────────────────────────────────
   const [initialEstimate, setInitialEstimate] = useState('')
   const [initialConfidence, setInitialConfidence] = useState(null)
   const [verificationResponse, setVerificationResponse] = useState(null)
@@ -118,7 +141,6 @@ export function StudyProvider({ children }) {
   const [finalConfidence, setFinalConfidence] = useState(null)
   const [cognitiveLoad, setCognitiveLoad] = useState(null)
 
-  // ── SECURE ANCHORING FIX: AI advice fetched ONLY after Step 1 submission ───
   const [fetchedAdvice, setFetchedAdvice] = useState(null)
   const [fetchedExplanation, setFetchedExplanation] = useState(null)
   const [isFetchingAdvice, setIsFetchingAdvice] = useState(false)
@@ -127,7 +149,7 @@ export function StudyProvider({ children }) {
 
   // ── Derived values ─────────────────────────────────────────────────────────
   const currentTrials = isPractice ? practiceTrials : trials
-  const trial = currentTrials[trialIndex] ?? null
+  const trial = currentTrials[trialIndex] ?? currentTrials[0] ?? null
   const type = trial ? (studyTypes[trial.scenarioType || trial.type] || trial) : null
   const totalTrials = currentTrials.length
   const trialNumber = trialIndex + 1
@@ -141,7 +163,7 @@ export function StudyProvider({ children }) {
     return trial[condition] ?? null
   }, [condition, trial, fetchedExplanation])
 
-  // ── AUTOSAVE & SINGLE-SITTING RESUME RECOVERY ──────────────────────────────
+  // ── Autosave recovery (only restores if on root '/' and active session exists) ─
   useEffect(() => {
     try {
       const saved = localStorage.getItem(AUTOSAVE_STORAGE_KEY)
@@ -156,17 +178,16 @@ export function StudyProvider({ children }) {
           if (typeof parsed.trialStep === 'number') setTrialStep(parsed.trialStep)
           if (parsed.initialEstimate) setInitialEstimate(parsed.initialEstimate)
           if (parsed.initialConfidence) setInitialConfidence(parsed.initialConfidence)
-          // Restore phase LAST so the navigate() fires after all state is set
-          if (parsed.phase && parsed.phase !== 'complete') {
+
+          // Only resume path if participant is visiting the root page '/'
+          if (location.pathname === '/' && parsed.phase && parsed.phase !== 'consent' && parsed.phase !== 'complete') {
             setPhaseState(parsed.phase)
             const path = PHASE_TO_PATH[parsed.phase]
             if (path) navigate(path, { replace: true })
           }
         }
       }
-    } catch {
-      // Storage error — start fresh
-    }
+    } catch {}
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -176,39 +197,11 @@ export function StudyProvider({ children }) {
         isPractice, trialIndex, trialStep, initialEstimate, initialConfidence,
         savedAt: Date.now(),
       }))
-    } catch {
-      // Storage save fallback
-    }
+    } catch {}
   }, [participantId, participantType, phase, condition, surveyMode,
       isPractice, trialIndex, trialStep, initialEstimate, initialConfidence])
 
-  // ── BEFOREUNLOAD EXIT WARNING ──────────────────────────────────────────────
-  useEffect(() => {
-    function handleBeforeUnload(e) {
-      if (phase === 'practice' || phase === 'scored') {
-        const message = 'You have an active decision study session. If you leave, your progress may be reset.'
-        e.preventDefault()
-        e.returnValue = message
-        return message
-      }
-    }
-    window.addEventListener('beforeunload', handleBeforeUnload)
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
-  }, [phase])
-
-  // ── HARD BACK-NAVIGATION LOCK (during active trials) ──────────────────────
-  useEffect(() => {
-    if (phase === 'practice' || phase === 'scored') {
-      window.history.pushState(null, '', window.location.href)
-      function handlePopState() {
-        window.history.pushState(null, '', window.location.href)
-      }
-      window.addEventListener('popstate', handlePopState)
-      return () => window.removeEventListener('popstate', handlePopState)
-    }
-  }, [phase, trialIndex, trialStep])
-
-  // ── TELEMETRY & SCREEN TRACKING ───────────────────────────────────────────
+  // ── Telemetry ──────────────────────────────────────────────────────────────
   useEffect(() => {
     telemetry.recordEvent(EventType.SCREEN_VIEWED, { screen: phase })
   }, [phase])
@@ -227,7 +220,7 @@ export function StudyProvider({ children }) {
     }
   }, [phase, isPractice, trialIndex, trialStep, trial])
 
-  // ── INTERNAL HELPERS ───────────────────────────────────────────────────────
+  // ── Helpers ────────────────────────────────────────────────────────────────
   function resetStepData() {
     setInitialEstimate('')
     setInitialConfidence(null)
@@ -253,16 +246,13 @@ export function StudyProvider({ children }) {
           return data.surveyMode
         }
       }
-    } catch {
-      // Network unreachable — fall through
-    }
+    } catch {}
     const fallback = assignModeFallback()
     setSurveyMode(fallback)
     return fallback
   }
 
-  // ── PHASE HANDLERS (consumed by individual page components) ───────────────
-
+  // ── Handlers ───────────────────────────────────────────────────────────────
   async function handleConsentSubmit(demographics) {
     telemetry.recordConsent(demographics)
     await fetchSurveyMode(participantId)
@@ -309,7 +299,6 @@ export function StudyProvider({ children }) {
     setPhase('scored')
   }
 
-  // ── STEP 1: INDEPENDENT ESTIMATE & ADVICE FETCH ───────────────────────────
   async function submitInitialEstimate(e) {
     e?.preventDefault()
     const normalizedVal = normalizeNumericInput(initialEstimate)
@@ -348,7 +337,6 @@ export function StudyProvider({ children }) {
     }
   }
 
-  // ── STEP 2: AI REVEAL ACKNOWLEDGMENT ──────────────────────────────────────
   function acknowledgeAI() {
     const dwellMs = Date.now() - startedAt
     telemetry.recordStep2AIReveal({
@@ -358,7 +346,6 @@ export function StudyProvider({ children }) {
     setStartedAt(Date.now())
   }
 
-  // ── STEP 3: VERIFICATION CHECK ─────────────────────────────────────────────
   function submitVerification() {
     if (!verificationResponse) return
     const dwellMs = Date.now() - startedAt
@@ -367,7 +354,6 @@ export function StudyProvider({ children }) {
     setStartedAt(Date.now())
   }
 
-  // ── STEP 4: FINAL ESTIMATE ─────────────────────────────────────────────────
   function submitFinalEstimate(e) {
     e?.preventDefault()
     const normalizedVal = normalizeNumericInput(finalEstimate)
@@ -418,24 +404,18 @@ export function StudyProvider({ children }) {
     setPhase('debrief')
   }
 
-  // ── Context value ──────────────────────────────────────────────────────────
   const value = {
-    // Session identity
     participantId, participantType, surveyMode, condition,
-    // Phase
     phase, setPhase,
-    // Trial state
     isPractice, trialIndex, trialStep,
     trial, type, totalTrials, trialNumber, isLastTrial, progress,
     explanation, fetchedAdvice, isFetchingAdvice,
-    // Step data
     initialEstimate, setInitialEstimate,
     initialConfidence, setInitialConfidence,
     verificationResponse, setVerificationResponse,
     finalEstimate, setFinalEstimate,
     finalConfidence, setFinalConfidence,
     cognitiveLoad, setCognitiveLoad,
-    // Handlers
     handleConsentSubmit,
     handleParticipantTypeSelect,
     handleTrainingComplete,
