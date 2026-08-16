@@ -15,6 +15,7 @@ const PHASE_LABELS = {
   'post-task':        'Post-Task',
   debrief:            'Debrief',
   complete:           'Complete',
+  excluded:           'Excluded',
   unknown:            '—',
 }
 
@@ -65,6 +66,8 @@ function ConditionBadge({ condition }) {
 function StatusBadge({ phase, isComplete }) {
   if (isComplete)
     return <span className="adm-badge adm-badge--complete">Complete</span>
+  if (phase === 'excluded')
+    return <span className="adm-badge" style={{ background: '#fee2e2', color: '#991b1b', borderColor: '#fecaca' }}>Excluded</span>
   if (phase === 'consent' || phase === 'unknown')
     return <span className="adm-badge adm-badge--neutral">Not started</span>
   return <span className="adm-badge adm-badge--active">In progress</span>
@@ -247,6 +250,10 @@ export default function AdminPage() {
     novice: { c0: 0, c1: 0, c2: 0, c3: 0 },
     expert: { c0: 0, c1: 0, c2: 0, c3: 0 },
   }
+  const schedMatrix = stats?.scheduleMatrix || {
+    novice: { s0: 0, s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0, s7: 0 },
+    expert: { s0: 0, s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0, s7: 0 },
+  }
 
   return (
     <div className="adm-shell">
@@ -316,9 +323,9 @@ export default function AdminPage() {
           <section className="adm-matrix-section">
             <div className="adm-matrix-header">
               <span className="adm-dist-label" style={{ margin: 0 }}>
-                2×4 Factorial Design Per-Cell Depth Matrix (Expertise × Condition)
+                2×4 Factorial Condition Depth Matrix (Expertise × Condition)
               </span>
-              <span className="adm-matrix-badge">Balanced Within Groups</span>
+              <span className="adm-matrix-badge">Min-Count Balanced</span>
             </div>
             <div className="adm-matrix-table-wrap">
               <table className="adm-matrix-table">
@@ -367,8 +374,80 @@ export default function AdminPage() {
           </section>
         )}
 
+        {/* ── Latin-Square Schedule Depth Matrix ── */}
+        {stats && (
+          <section className="adm-matrix-section" style={{ marginTop: 20 }}>
+            <div className="adm-matrix-header">
+              <span className="adm-dist-label" style={{ margin: 0 }}>
+                Latin-Square Correctness Schedule Depth Matrix (Expertise × S0–S7)
+              </span>
+              <span className="adm-matrix-badge">Min-Count Randomized</span>
+            </div>
+            <div className="adm-matrix-table-wrap">
+              <table className="adm-matrix-table">
+                <thead>
+                  <tr>
+                    <th>Expertise Group</th>
+                    <th title="Schedule Pair 1">S0</th>
+                    <th title="Schedule Pair 1 (Complement)">S1</th>
+                    <th title="Schedule Pair 2">S2</th>
+                    <th title="Schedule Pair 2 (Complement)">S3</th>
+                    <th title="Schedule Pair 3">S4</th>
+                    <th title="Schedule Pair 3 (Complement)">S5</th>
+                    <th title="Schedule Pair 4">S6</th>
+                    <th title="Schedule Pair 4 (Complement)">S7</th>
+                    <th>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td className="adm-matrix-type"><strong>Novice</strong> (Students)</td>
+                    <td><span className="adm-matrix-num">{schedMatrix.novice.s0}</span></td>
+                    <td><span className="adm-matrix-num">{schedMatrix.novice.s1}</span></td>
+                    <td><span className="adm-matrix-num">{schedMatrix.novice.s2}</span></td>
+                    <td><span className="adm-matrix-num">{schedMatrix.novice.s3}</span></td>
+                    <td><span className="adm-matrix-num">{schedMatrix.novice.s4}</span></td>
+                    <td><span className="adm-matrix-num">{schedMatrix.novice.s5}</span></td>
+                    <td><span className="adm-matrix-num">{schedMatrix.novice.s6}</span></td>
+                    <td><span className="adm-matrix-num">{schedMatrix.novice.s7}</span></td>
+                    <td className="adm-matrix-total">
+                      {Object.values(schedMatrix.novice).reduce((a, b) => a + b, 0)}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="adm-matrix-type"><strong>Expert</strong> (Practitioners)</td>
+                    <td><span className="adm-matrix-num">{schedMatrix.expert.s0}</span></td>
+                    <td><span className="adm-matrix-num">{schedMatrix.expert.s1}</span></td>
+                    <td><span className="adm-matrix-num">{schedMatrix.expert.s2}</span></td>
+                    <td><span className="adm-matrix-num">{schedMatrix.expert.s3}</span></td>
+                    <td><span className="adm-matrix-num">{schedMatrix.expert.s4}</span></td>
+                    <td><span className="adm-matrix-num">{schedMatrix.expert.s5}</span></td>
+                    <td><span className="adm-matrix-num">{schedMatrix.expert.s6}</span></td>
+                    <td><span className="adm-matrix-num">{schedMatrix.expert.s7}</span></td>
+                    <td className="adm-matrix-total">
+                      {Object.values(schedMatrix.expert).reduce((a, b) => a + b, 0)}
+                    </td>
+                  </tr>
+                  <tr className="adm-matrix-footer-row">
+                    <td><strong>Total</strong></td>
+                    <td><strong>{stats.schedules?.s0 ?? 0}</strong></td>
+                    <td><strong>{stats.schedules?.s1 ?? 0}</strong></td>
+                    <td><strong>{stats.schedules?.s2 ?? 0}</strong></td>
+                    <td><strong>{stats.schedules?.s3 ?? 0}</strong></td>
+                    <td><strong>{stats.schedules?.s4 ?? 0}</strong></td>
+                    <td><strong>{stats.schedules?.s5 ?? 0}</strong></td>
+                    <td><strong>{stats.schedules?.s6 ?? 0}</strong></td>
+                    <td><strong>{stats.schedules?.s7 ?? 0}</strong></td>
+                    <td><strong>{stats.total}</strong></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
         {/* ── Filters ── */}
-        <section className="adm-filters">
+        <section className="adm-filters" style={{ marginTop: 24 }}>
           <input
             id="adm-search"
             className="adm-filter-input"

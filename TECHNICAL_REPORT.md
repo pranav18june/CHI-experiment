@@ -8,17 +8,18 @@
 
 ## Changes Since Previous Report
 
-This technical report has been completely re-derived from the live source code to document the current operational state of the platform following the implementation of core protocol updates:
+This technical report has been completely re-derived from the live source code to document the operational state of the platform following the implementation of core protocol updates and pre-pilot tightening:
 
 1. **4-Condition Protocol Standardisation (C0–C3):** Standardised condition naming across all database models, APIs, and client states. Added the **C0 Baseline** condition (Recommendation-Only, No Explanation) alongside **C1** (Numerical/Driver Attributions), **C2** (Narrative Context), and **C3** (Counterfactual Verification).
 2. **$2 \times 4$ Expertise-Stratified Factorial Balancing:** Refactored `ModeCounter`, `ParticipantMode`, and `api/assign-mode.js` to track condition assignments independently within expertise strata (`novice` vs. `expert`), ensuring balanced per-cell depth ($N_{\text{group}} \times 4$).
-3. **Latin-Square Counterbalanced Correctness Schedules:** Built 8 complement schedules ($S_0\text{--}S_7$) enforcing exactly 6 correct / 6 incorrect AI advice instances per participant, 3 High / 3 Low error directions, $\le 2$ consecutive run limits, and 50/50 sample-wide correctness per scenario.
+3. **Min-Count Latin-Square Schedule Assignment Randomization:** Updated schedule selection from a deterministic running counter (`count % 8`) to an active **min-count balancing algorithm** across all 8 Latin-square complement schedules ($S_0\text{--}S_7$) within each expertise group (ties broken uniformly at random). Surfaced schedule depth counts in the admin dashboard matrix view.
 4. **Primary Outcome Measure: Directional Cost Regret:** Implemented signed, asymmetrically weighted cost regret ($\Delta = \text{Final} - \text{Optimal}$, weighted $1.85\times$ for expensive under-ordering / stockout errors and $1.0\times$ for holding overage) in `api/telemetry/index.js`, `TrialResult` schema, and admin dashboards.
 5. **Interactive Number-Line Input (Protocol §5.9):** Built the `NumberLineInput` slider component with dynamic per-scenario bounds, clean step intervals, and historical demand baseline anchoring in Step 1 and Step 4.
 6. **4-Item Novice Comprehension Check (Appendix C.1):** Built the 4-item validation test with two-attempt pass/fail logic and pre-registered participant exclusion routing (`/excluded`).
 7. **Instructional Attention Check (Protocol §5.11):** Embedded an instructional manipulation check in practice feedback with telemetry tracking and exclusion gating.
 8. **Post-Task Questionnaire Battery (Appendix C.3):** Implemented standard 6-subscale NASA-TLX, modular Schwartz-Lipkus & SNS numeracy scale, supply chain domain experience measures, and the `PostTaskResponse` database model.
-9. **Security Hardening:** Implemented admin header authentication (`x-admin-secret`), CORS controls, and numeric input sanitization.
+9. **Flagged Researcher-Decided Parameters:** Formally annotated the numeracy scale (`Schwartz-Lipkus-3Item-Plus-SNS`) and stockout penalty weight ($1.85\times$) in code and documentation as working placeholders pending pre-registration sign-off.
+10. **Documented Security Scope Decision:** Documented the deliberate design choice to omit multi-tenant rate limiting and token hashing in favor of lightweight header authentication for internal research lab deployments.
 
 ---
 
@@ -102,7 +103,7 @@ flowchart TD
     Start([Participant Accesses Platform]) --> Consent["Consent & Demographics (/)"]
     Consent --> TypeSelect["Expertise Selection (/type)"]
     
-    TypeSelect -->|Stratified Assignment| AssignMode["API: Assign Condition (C0-C3) & 12-Trial Plan"]
+    TypeSelect -->|Stratified Min-Count| AssignMode["API: Assign Condition (C0-C3) & Schedule (S0-S7)"]
     
     TypeSelect -->|Novice| Training["Novice Workshop Training (/training)"]
     TypeSelect -->|Expert| Walkthrough["Expert System Walkthrough (/walkthrough)"]
@@ -179,7 +180,7 @@ decision-study-platform/
 │   ├── lib/
 │   │   └── mongodb.js                 # Cached serverless MongoDB client pool
 │   ├── models/
-│   │   ├── ModeCounter.js             # 2x4 Factorial condition counter schema
+│   │   ├── ModeCounter.js             # 2x4 Factorial condition & schedule counter schema
 │   │   ├── ParticipantMode.js         # Participant condition & type records
 │   │   ├── ParticipantTrialPlan.js    # Latin-square 12-trial counterbalanced plans
 │   │   ├── PostTaskResponse.js        # NASA-TLX, Numeracy, Domain analytics model
@@ -202,7 +203,7 @@ decision-study-platform/
 │   │   ├── questionnaires/
 │   │   │   ├── DomainExperience.jsx   # Supply chain domain experience questions
 │   │   │   ├── NasaTlx.jsx            # NASA-TLX 6-dimension workload sliders
-│   │   └── NumeracyScale.jsx      # Schwartz-Lipkus & SNS numeracy battery
+│   │   │   └── NumeracyScale.jsx      # Schwartz-Lipkus & SNS numeracy battery
 │   │   ├── training/
 │   │   │   └── ComprehensionCheck.jsx # 4-Item Novice Comprehension Check (Appendix C.1)
 │   │   └── trial/
@@ -255,7 +256,7 @@ decision-study-platform/
 ### 6.1 Onboarding & Stratification Module
 - **Consent & Demographics:** Captures initial demographics (programme of study, year/level, prior coursework, AI tool use frequency, gender, age) and records voluntary consent.
 - **Expertise Branching:** Participants select their background (`novice` vs. `expert`).
-- **Condition Assignment:** Atomically assigns condition (`c0`, `c1`, `c2`, `c3`) balanced strictly within the participant's expertise group via `api/assign-mode.js`.
+- **Condition & Schedule Assignment:** Atomically assigns condition (`c0`, `c1`, `c2`, `c3`) and Latin-square schedule (`s0` to `s7`) using min-count balancing independently within the participant's expertise group.
 
 ### 6.2 Training & Comprehension Check Module
 - **Novice Workshop:** Step-by-step guidance on demand volatility, lead-time demand, peak-season risks, and AI advisory nature.
@@ -279,7 +280,7 @@ decision-study-platform/
 ### 6.5 Post-Task & Administrative Module
 - **Post-Task Questionnaire:** Full 6-subscale NASA-TLX, 4-item Numeracy battery, and Supply Chain Domain Experience measure.
 - **Debrief & Completion:** Discloses intentional AI errors, presents researcher contact information, and generates a session completion code.
-- **Admin Dashboard:** Password-protected dashboard displaying real-time enrollment, $2 \times 4$ depth matrix, WoA, and Directional Cost Regret.
+- **Admin Dashboard:** Password-protected dashboard displaying real-time enrollment, $2 \times 4$ condition depth matrix, Latin-square schedule matrix ($S_0\text{--}S_7$), WoA, and Directional Cost Regret.
 
 ---
 
@@ -290,8 +291,8 @@ decision-study-platform/
 erDiagram
     ModeCounter {
         string _id PK
-        object novice "c0, c1, c2, c3, count"
-        object expert "c0, c1, c2, c3, count"
+        object novice "c0-c3, s0-s7"
+        object expert "c0-c3, s0-s7"
         date updatedAt
     }
 
@@ -369,23 +370,37 @@ erDiagram
 ### 7.2 Mongoose Schema Definitions & Indexing
 
 #### 1. `ModeCounter` (`api/models/ModeCounter.js`)
-Tracks the $2 \times 4$ between-subjects condition distribution separately within each expertise stratum.
+Tracks the $2 \times 4$ between-subjects condition and schedule distribution separately within each expertise stratum.
 ```javascript
 {
-  _id:    { type: String, default: 'global_mode_counter' },
+  _id:    { type: String, default: 'global' },
   novice: {
     c0: { type: Number, default: 0 },
     c1: { type: Number, default: 0 },
     c2: { type: Number, default: 0 },
     c3: { type: Number, default: 0 },
-    count: { type: Number, default: 0 },
+    s0: { type: Number, default: 0 },
+    s1: { type: Number, default: 0 },
+    s2: { type: Number, default: 0 },
+    s3: { type: Number, default: 0 },
+    s4: { type: Number, default: 0 },
+    s5: { type: Number, default: 0 },
+    s6: { type: Number, default: 0 },
+    s7: { type: Number, default: 0 },
   },
   expert: {
     c0: { type: Number, default: 0 },
     c1: { type: Number, default: 0 },
     c2: { type: Number, default: 0 },
     c3: { type: Number, default: 0 },
-    count: { type: Number, default: 0 },
+    s0: { type: Number, default: 0 },
+    s1: { type: Number, default: 0 },
+    s2: { type: Number, default: 0 },
+    s3: { type: Number, default: 0 },
+    s4: { type: Number, default: 0 },
+    s5: { type: Number, default: 0 },
+    s6: { type: Number, default: 0 },
+    s7: { type: Number, default: 0 },
   },
   updatedAt: { type: Date, default: Date.now }
 }
@@ -419,7 +434,7 @@ Structured post-experimental survey responses (NASA-TLX, Numeracy, Domain Backgr
 ### 8.1 Mode Assignment API (`api/assign-mode.js`)
 
 #### `POST /api/assign-mode`
-Assigns condition (balanced within expertise group) and generates a Latin-square 12-trial plan.
+Assigns condition and schedule (balanced via min-count within expertise group) and generates a Latin-square 12-trial plan.
 - **Request Headers:** `Content-Type: application/json`
 - **Request Body:**
   ```json
@@ -483,7 +498,7 @@ Batch ingestion endpoint for telemetry events, trial decisions, and post-task su
 ### 8.3 Admin Monitoring API (`api/admin/participants.js`)
 
 #### `GET /api/admin/participants`
-Returns aggregated recruitment, progress, $2 \times 4$ depth matrix, and outcome statistics.
+Returns aggregated recruitment, progress, $2 \times 4$ depth matrix, schedule distribution ($S_0\text{--}S_7$), and outcome statistics.
 - **Security Header:** `x-admin-secret: <ADMIN_SECRET>`
 - **Response (200 OK):**
   ```json
@@ -494,9 +509,14 @@ Returns aggregated recruitment, progress, $2 \times 4$ depth matrix, and outcome
       "inProgress": 8,
       "types": { "novice": 24, "expert": 24 },
       "conditions": { "c0": 12, "c1": 12, "c2": 12, "c3": 12 },
+      "schedules": { "s0": 6, "s1": 6, "s2": 6, "s3": 6, "s4": 6, "s5": 6, "s6": 6, "s7": 6 },
       "matrix": {
         "novice": { "c0": 6, "c1": 6, "c2": 6, "c3": 6 },
         "expert": { "c0": 6, "c1": 6, "c2": 6, "c3": 6 }
+      },
+      "scheduleMatrix": {
+        "novice": { "s0": 3, "s1": 3, "s2": 3, "s3": 3, "s4": 3, "s5": 3, "s6": 3, "s7": 3 },
+        "expert": { "s0": 3, "s1": 3, "s2": 3, "s3": 3, "s4": 3, "s5": 3, "s6": 3, "s7": 3 }
       },
       "globalAvgWoA": 0.442,
       "globalAvgDirectionalRegret": -2450
@@ -509,29 +529,35 @@ Returns aggregated recruitment, progress, $2 \times 4$ depth matrix, and outcome
 
 ## 9. Algorithms & Mathematical Formulations
 
-### 9.1 $2 \times 4$ Stratified Min-Count Balancing
-Condition assignment balances condition counts independently within the participant's expertise group ($G \in \{\text{novice}, \text{expert}\}$):
+### 9.1 $2 \times 4$ Stratified Min-Count Balancing (Conditions & Schedules)
+Condition assignment and schedule assignment balance counts independently within the participant's expertise group ($G \in \{\text{novice}, \text{expert}\}$):
 
 ```
-Algorithm 1: Stratified Min-Count Condition Assignment
+Algorithm 1: Stratified Min-Count Condition & Schedule Assignment
 Input: Participant ID p, Group G in {novice, expert}
-Output: Assigned Condition c in {c0, c1, c2, c3}, Schedule Index s
+Output: Assigned Condition c in {c0, c1, c2, c3}, Schedule Index s in {0..7}
 
 1. Connect to MongoDB
 2. If ParticipantMode exists for p:
 3.     Return existing condition and trial plan
 4. Fetch or initialize ModeCounter document
 5. Let groupCounts = ModeCounter[G]
-6. Let minVal = min(groupCounts[c0], groupCounts[c1], groupCounts[c2], groupCounts[c3])
-7. Let tiedConditions = { c in {c0, c1, c2, c3} | groupCounts[c] == minVal }
-8. Uniformly select chosenCondition from tiedConditions at random
-9. Increment ModeCounter[G][chosenCondition] by 1
-10. Increment ModeCounter[G].count by 1
-11. Let s = ModeCounter[G].count
-12. Save ModeCounter atomically
-13. Generate 12-trial plan using Schedule s mod 8
-14. Persist ParticipantMode and ParticipantTrialPlan
-15. Return chosenCondition, s, and trialPlan
+
+// Condition min-count selection
+6. Let minCond = min(groupCounts[c0], groupCounts[c1], groupCounts[c2], groupCounts[c3])
+7. Let tiedConds = { c in {c0..c3} | groupCounts[c] == minCond }
+8. Uniformly select chosenCondition from tiedConds at random
+
+// Schedule min-count selection
+9. Let minSched = min(groupCounts[s0], ..., groupCounts[s7])
+10. Let tiedScheds = { sk in {s0..s7} | groupCounts[sk] == minSched }
+11. Uniformly select chosenSchedKey from tiedScheds at random
+12. Let s = integer index of chosenSchedKey (0 to 7)
+
+13. Atomically increment ModeCounter[G][chosenCondition] and ModeCounter[G][chosenSchedKey] by 1
+14. Generate 12-trial plan using Schedule s
+15. Persist ParticipantMode and ParticipantTrialPlan
+16. Return chosenCondition, s, and trialPlan
 ```
 
 ### 9.2 Latin-Square Correctness Counterbalancing
@@ -628,15 +654,23 @@ sequenceDiagram
 3. **Post-Task Questionnaire (`PostTaskForm.jsx`):**
    - 3-part tabbed layout: (1) NASA-TLX workload sliders ($0\text{--}100$), (2) Quantitative numeracy items, (3) Domain experience and APICS certifications.
 4. **Admin Monitoring Dashboard (`AdminPage.jsx`):**
-   - Features KPI metrics, $2 \times 4$ depth matrix table, sortable participant table, and signed color-coded Directional Cost Regret displays.
+   - Features KPI metrics, $2 \times 4$ condition depth matrix, Latin-square schedule matrix ($S_0\text{--}S_7$), sortable participant table, and signed color-coded Directional Cost Regret displays.
 
 ---
 
-## 12. Security & Data Integrity
+## 12. Security & Architecture Scope Decisions
 
-1. **Administrative Authentication:** Admin endpoints (`/api/admin/participants`) enforce header authentication via `x-admin-secret` matched against server environment variables.
-2. **Cross-Origin Resource Sharing (CORS):** Strict CORS headers configured on all serverless functions to support multi-origin research deployments.
-3. **Data Sanitization & Normalization:** Client and server-side validation strips formatting characters (commas, dollar signs) and ensures finite numerical bounds before database execution.
+### 12.1 Internal Research Scope & Tradeoffs Note
+> [!NOTE]
+> **Deliberate Security Architecture Scope Decision:**
+> As a dedicated behavioural science research platform deployed in controlled laboratory and proctored university research settings, multi-tenant IP rate-limiting, OAuth2/JWT session tokens, and cryptographic password hashing were **intentionally omitted by design**. 
+> 
+> The application is not exposed as a public multi-tenant SaaS service. Header-based secret verification (`x-admin-secret`) provides a reliable, lightweight administrative boundary for research proctors and principal investigators without introducing complex authentication infrastructure or maintenance overhead.
+
+### 12.2 Implemented Data Integrity Protections
+1. **Administrative Boundary:** Admin endpoints (`/api/admin/participants`) enforce secret verification via `x-admin-secret`.
+2. **Cross-Origin Resource Sharing (CORS):** Strict CORS headers configured across all serverless endpoints to support authorized client origins.
+3. **Data Sanitization & Normalization:** Client and server-side validation strips formatting characters (commas, dollar signs) and ensures finite numerical bounds before database operations.
 4. **Idempotent State Recovery:** Client utilizes localStorage autosave recovery with a 24-hour expiration window, preventing duplicate condition assignments upon page reload.
 
 ---
@@ -644,7 +678,7 @@ sequenceDiagram
 ## 13. Error Handling & Fault Tolerance
 
 1. **Client-Side Telemetry Queue:** If a network failure occurs, telemetry events are buffered in `study-telemetry-queue-v2` in localStorage and automatically retried upon next interaction or reconnect.
-2. **Offline Fallback Balancer:** If the `/api/assign-mode` endpoint is unreachable, a deterministic local counter (`study-condition-counter-v2`) assigns condition and trial plan without interrupting the study.
+2. **Offline Fallback Balancer:** If the `/api/assign-mode` endpoint is unreachable, a deterministic local counter (`study-condition-counter-v2`) assigns condition and trial plan using min-count logic without interrupting the study.
 3. **Graceful Database Reconnects:** Serverless MongoDB client caches connection instances across warm Lambda invocations, handling reconnection gracefully during cold starts.
 
 ---
@@ -666,9 +700,11 @@ Automated Node.js test suites and Vite build verifications confirm:
    - Exact match (\$30,000 vs. \$30,000) $\rightarrow$ `costRegret = 0`, `directionalCostRegret = 0`.
 2. **Latin-Square Counterbalance Schedules:**
    - Verified that all 8 schedules satisfy 6 correct / 6 incorrect splits, 3 High / 3 Low error directions, and $\le 2$ consecutive run limits.
-3. **Numeracy Scoring:**
+3. **Min-Count Schedule Balancing:**
+   - Verified uniform assignment across schedule slots ($S_0\text{--}S_7$) during simulated multi-user enrollment.
+4. **Numeracy Scoring:**
    - Tested full scoring permutations across objective and subjective numeracy items.
-4. **Vite Build Verification:** Clean production compilation with **0 errors**.
+5. **Vite Build Verification:** Clean production compilation with **0 errors**.
 
 ---
 
@@ -700,8 +736,11 @@ VITE_STUDY_VERSION=4.1.0
 
 ## 17. Limitations & Open Protocol Items
 
-1. **Visual Time-Series Data Series:** The chart placeholders in `TrialShell.jsx` currently display structured grid layouts and moving-average hints (`TODO_CHART_DATA_PRAC1`, etc.). Final empirical time-series data vectors from the research dataset should be bound when final dataset CSVs are finalized.
-2. **Recruitment Channel Compensation Hooks:** Completion screen codes (`TODO_COMPLETION_COPY`) and ethics contact emails (`TODO_ETHICS_COPY`, `TODO_DEBRIEF_TEXT`) are currently structured with standardized institutional placeholders to be filled upon final IRB protocol approval.
+1. **Parameters Pending Pre-Registration Sign-Off:**
+   - The **Validated Numeracy Battery** (currently Schwartz-Lipkus 3-Item + SNS in `src/config/numeracyScale.js`) is an empirical placeholder pending formal sign-off.
+   - The **Stockout Penalty Multiplier** (currently $1.85\times$ in `src/config/index.js`) is a configurable working value pending final protocol registration.
+2. **Visual Time-Series Data Series:** The chart placeholders in `TrialShell.jsx` currently display structured grid layouts and moving-average hints (`TODO_CHART_DATA_PRAC1`, etc.). Final empirical time-series data vectors from the research dataset should be bound when final dataset CSVs are finalized.
+3. **Recruitment Channel Compensation Hooks:** Completion screen codes (`TODO_COMPLETION_COPY`) and ethics contact emails (`TODO_ETHICS_COPY`, `TODO_DEBRIEF_TEXT`) are currently structured with standardized institutional placeholders to be filled upon final IRB protocol approval.
 
 ---
 
@@ -715,7 +754,7 @@ VITE_STUDY_VERSION=4.1.0
 
 ## 19. Conclusion
 
-The **Supply Chain Decision Research Platform (SCDRP)** is a robust, academically rigorous experimental software platform. By unifying 4-condition explainability modes, $2 \times 4$ expertise-stratified balancing, Latin-square correctness counterbalancing, directional cost regret modeling, interactive number-line input, and multi-instrument post-task questionnaires, the system provides a turn-key platform for state-of-the-art behavioural human-AI research.
+The **Supply Chain Decision Research Platform (SCDRP)** is a robust, academically rigorous experimental software platform. By unifying 4-condition explainability modes, $2 \times 4$ expertise-stratified balancing, min-count randomized Latin-square schedule assignment, directional cost regret modeling, interactive number-line input, and multi-instrument post-task questionnaires, the system provides a turn-key platform for state-of-the-art behavioural human-AI research.
 
 ---
 

@@ -7,6 +7,7 @@ import { generateParticipantTrialPlan, CORRECTNESS_SCHEDULES } from '../src/util
 
 export const CONDITIONS = ['c0', 'c1', 'c2', 'c3']
 export const PARTICIPANT_TYPES = ['novice', 'expert']
+export const SCHEDULE_KEYS = ['s0', 's1', 's2', 's3', 's4', 's5', 's6', 's7']
 
 /**
  * 2×4 Between-Subjects Balanced Condition & Counterbalanced Trial Plan Assignment API
@@ -15,13 +16,10 @@ export const PARTICIPANT_TYPES = ['novice', 'expert']
  *   Idempotent lookup — returns the assigned condition, participantType, and 12-trial plan.
  *
  * POST /api/assign-mode  { participantId: "P-XXXXX", participantType: "novice" | "expert" }
- *   1. Atomically assigns a condition (c0, c1, c2, c3) balanced within the participant's
- *      own expertise group (Novice vs. Expert).
- *   2. Assigns a counterbalanced 12-trial correctness plan from Latin-square complement schedules:
- *      - Exactly 6 correct and 6 incorrect AI recommendations.
- *      - Exactly 3 High and 3 Low error directions for incorrect trials.
- *      - Maximum 2 consecutive same-correctness trials.
- *      - 50% sample-wide correctness per scenario instance across complementary assignments.
+ *   1. Atomically assigns a condition (c0, c1, c2, c3) using min-count balancing within the
+ *      participant's own expertise group (Novice vs. Expert), breaking ties uniformly at random.
+ *   2. Atomically assigns a counterbalanced 12-trial correctness schedule (s0 to s7) using
+ *      min-count balancing within the participant's own expertise group, breaking ties uniformly at random.
  *   3. Persists both ParticipantMode and ParticipantTrialPlan in MongoDB atomically.
  */
 export default async function handler(req, res) {
@@ -107,39 +105,50 @@ export default async function handler(req, res) {
         { _id: 'global' },
         {
           $setOnInsert: {
-            novice: { c0: 0, c1: 0, c2: 0, c3: 0 },
-            expert: { c0: 0, c1: 0, c2: 0, c3: 0 },
+            novice: { c0: 0, c1: 0, c2: 0, c3: 0, s0: 0, s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0, s7: 0 },
+            expert: { c0: 0, c1: 0, c2: 0, c3: 0, s0: 0, s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0, s7: 0 },
           },
         },
         { upsert: true, new: true }
       )
       counter = {
-        novice: { c0: 0, c1: 0, c2: 0, c3: 0 },
-        expert: { c0: 0, c1: 0, c2: 0, c3: 0 },
+        novice: { c0: 0, c1: 0, c2: 0, c3: 0, s0: 0, s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0, s7: 0 },
+        expert: { c0: 0, c1: 0, c2: 0, c3: 0, s0: 0, s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0, s7: 0 },
       }
     }
 
-    // ── Step 3: Pick minimum-count condition within the participant's group ──
     const groupCounts = counter[group] || {}
-    const counts = {
+
+    // ── Step 3A: Min-Count Condition Selection (Ties broken uniformly at random) ──
+    const condCounts = {
       c0: groupCounts.c0 ?? 0,
       c1: groupCounts.c1 ?? 0,
       c2: groupCounts.c2 ?? 0,
       c3: groupCounts.c3 ?? 0,
     }
-
-    const minCount = Math.min(...CONDITIONS.map((c) => counts[c]))
-    const tiedConditions = CONDITIONS.filter((c) => counts[c] === minCount)
+    const minCondCount = Math.min(...CONDITIONS.map((c) => condCounts[c]))
+    const tiedConditions = CONDITIONS.filter((c) => condCounts[c] === minCondCount)
     const chosenCondition = tiedConditions[Math.floor(Math.random() * tiedConditions.length)]
 
-    // Compute counterbalanced schedule index (round-robin across 8 Latin-square complement schedules)
-    const totalAssignedInGroup = (counts.c0 + counts.c1 + counts.c2 + counts.c3)
-    const scheduleIndex = totalAssignedInGroup % CORRECTNESS_SCHEDULES.length
+    // ── Step 3B: Min-Count Schedule Selection (Ties broken uniformly at random) ──
+    const schedCounts = {}
+    for (const sk of SCHEDULE_KEYS) {
+      schedCounts[sk] = groupCounts[sk] ?? 0
+    }
+    const minSchedCount = Math.min(...SCHEDULE_KEYS.map((sk) => schedCounts[sk]))
+    const tiedSchedules = SCHEDULE_KEYS.filter((sk) => schedCounts[sk] === minSchedCount)
+    const chosenSchedKey = tiedSchedules[Math.floor(Math.random() * tiedSchedules.length)]
+    const scheduleIndex = parseInt(chosenSchedKey.replace('s', ''), 10)
 
-    // ── Step 4: Atomically increment within that group ───────────────────────
+    // ── Step 4: Atomically increment both condition & schedule counters ───────
     await ModeCounter.findOneAndUpdate(
       { _id: 'global' },
-      { $inc: { [`${group}.${chosenCondition}`]: 1 } },
+      {
+        $inc: {
+          [`${group}.${chosenCondition}`]: 1,
+          [`${group}.${chosenSchedKey}`]: 1,
+        },
+      },
       { upsert: true }
     )
 
@@ -181,10 +190,11 @@ export default async function handler(req, res) {
       surveyMode: assigned,
       participantType: group,
       participantId,
+      scheduleIndex,
       trialPlan: trialsPlan,
     })
   } catch (error) {
-    console.error('[assign-mode POST error]', error)
+    console.error('[assign-mode error]', error)
     return res.status(500).json({ error: 'Internal Server Error', message: error.message })
   }
 }

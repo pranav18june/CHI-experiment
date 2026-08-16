@@ -51,27 +51,41 @@ export const PATH_TO_PHASE = {
   '/excluded':    'excluded',
 }
 
+const SCHEDULE_KEYS = ['s0', 's1', 's2', 's3', 's4', 's5', 's6', 's7']
+
 /**
  * Client-side offline fallback balancer across all 4 conditions (c0–c3)
- * independently within each expertise group (novice vs. expert).
+ * and 8 Latin-square correctness schedules (s0–s7) independently within
+ * each expertise group (novice vs. expert) via min-count selection.
  */
 function assignConditionFallback(participantType = 'novice') {
   const group = participantType === 'expert' ? 'expert' : 'novice'
   try {
     const raw = localStorage.getItem(CONDITION_COUNTER_KEY)
     const counts = raw ? JSON.parse(raw) : {
-      novice: { c0: 0, c1: 0, c2: 0, c3: 0, count: 0 },
-      expert: { c0: 0, c1: 0, c2: 0, c3: 0, count: 0 },
+      novice: { c0: 0, c1: 0, c2: 0, c3: 0, s0: 0, s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0, s7: 0 },
+      expert: { c0: 0, c1: 0, c2: 0, c3: 0, s0: 0, s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0, s7: 0 },
     }
-    if (!counts[group]) counts[group] = { c0: 0, c1: 0, c2: 0, c3: 0, count: 0 }
+    if (!counts[group]) {
+      counts[group] = { c0: 0, c1: 0, c2: 0, c3: 0, s0: 0, s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0, s7: 0 }
+    }
     const groupCounts = counts[group]
-    const minCount = Math.min(...CONDITIONS.map((c) => groupCounts[c] ?? 0))
-    const tied = CONDITIONS.filter((c) => (groupCounts[c] ?? 0) === minCount)
-    const chosen = tied[Math.floor(Math.random() * tied.length)]
-    counts[group][chosen] = (groupCounts[chosen] ?? 0) + 1
-    counts[group].count = (groupCounts.count ?? 0) + 1
+
+    // Condition min-count
+    const minCondCount = Math.min(...CONDITIONS.map((c) => groupCounts[c] ?? 0))
+    const tiedConds = CONDITIONS.filter((c) => (groupCounts[c] ?? 0) === minCondCount)
+    const chosenCond = tiedConds[Math.floor(Math.random() * tiedConds.length)]
+    counts[group][chosenCond] = (groupCounts[chosenCond] ?? 0) + 1
+
+    // Schedule min-count
+    const minSchedCount = Math.min(...SCHEDULE_KEYS.map((s) => groupCounts[s] ?? 0))
+    const tiedScheds = SCHEDULE_KEYS.filter((s) => (groupCounts[s] ?? 0) === minSchedCount)
+    const chosenSchedKey = tiedScheds[Math.floor(Math.random() * tiedScheds.length)]
+    const scheduleIndex = parseInt(chosenSchedKey.replace('s', ''), 10)
+    counts[group][chosenSchedKey] = (groupCounts[chosenSchedKey] ?? 0) + 1
+
     localStorage.setItem(CONDITION_COUNTER_KEY, JSON.stringify(counts))
-    return { condition: chosen, scheduleIndex: counts[group].count }
+    return { condition: chosenCond, scheduleIndex }
   } catch {
     return {
       condition: CONDITIONS[Math.floor(Math.random() * CONDITIONS.length)],

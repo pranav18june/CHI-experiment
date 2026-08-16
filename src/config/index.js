@@ -2,8 +2,14 @@
  * Centralized Study Configuration & Environment Flags
  */
 
+// ==============================================================================
+// PLACEHOLDER PENDING RESEARCHER SIGN-OFF:
 // Asymmetric Regret Cost Weight Constants (Protocol Primary Outcome Measure)
-// Stockout-side underestimation is weighted higher (~1.85x) vs. holding cost overestimation (1.0x)
+// The stockout penalty weight (default ~1.85x) is currently an empirical placeholder
+// pending final formal sign-off from the study's pre-registration. It is NOT a finalized
+// protocol decision and can be overridden via process.env.STOCKOUT_PENALTY_WEIGHT or
+// import.meta.env.VITE_STOCKOUT_PENALTY_WEIGHT.
+// ==============================================================================
 const envStockout = typeof process !== 'undefined' && process?.env?.STOCKOUT_PENALTY_WEIGHT
   ? Number(process.env.STOCKOUT_PENALTY_WEIGHT)
   : (typeof import.meta !== 'undefined' && import.meta.env?.VITE_STOCKOUT_PENALTY_WEIGHT

@@ -1,12 +1,14 @@
 /**
  * Validated Numeracy Instrument Configuration (Protocol §5.11 / §6 / Appendix C.3)
  *
- * Default Instrument: Schwartz et al. (1997) & Lipkus et al. (2001) 3-Item Objective Numeracy Battery
- * plus Weller et al. Subjective Numeracy Scale (SNS) items.
- *
- * This configuration is isolated and modular to allow researchers to easily swap out
- * the instrument (e.g. for the Berlin Numeracy Test or Weller 8-item SNS) by updating
- * this configuration file.
+ * ==============================================================================
+ * PLACEHOLDER PENDING RESEARCHER SIGN-OFF:
+ * The choice of numeracy instrument (Schwartz et al. 1997 / Lipkus et al. 2001
+ * 3-Item Objective Battery plus Weller et al. Subjective Numeracy Scale) is currently
+ * a placeholder pending formal sign-off from the study's pre-registration. It is
+ * NOT a finalized protocol decision and can be swapped for another validated scale
+ * (e.g. Berlin Numeracy Test or Weller 8-Item SNS) by updating this file.
+ * ==============================================================================
  */
 
 export const NUMERACY_INSTRUMENT_NAME = 'Schwartz-Lipkus-3Item-Plus-SNS'
@@ -62,6 +64,9 @@ export const NUMERACY_ITEMS = [
 
 /**
  * Computes objective numeracy score (0 to 3) and subjective rating from responses.
+ *
+ * NOTE: Scoring logic corresponds to the Schwartz-Lipkus 3-item battery and is
+ * subject to researcher pre-registration sign-off.
  */
 export function scoreNumeracy(responses = {}) {
   let objectiveScore = 0

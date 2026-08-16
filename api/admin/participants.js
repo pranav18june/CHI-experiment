@@ -2,6 +2,7 @@ import { connectToDatabase } from '../lib/mongodb.js'
 import TelemetryEvent from '../models/TelemetryEvent.js'
 import TrialResult from '../models/TrialResult.js'
 import ParticipantMode from '../models/ParticipantMode.js'
+import ParticipantTrialPlan from '../models/ParticipantTrialPlan.js'
 
 const SCORED_TRIAL_TOTAL = 12
 
@@ -13,7 +14,7 @@ const SCORED_TRIAL_TOTAL = 12
  *
  * Returns an aggregated summary of all participants for the research admin dashboard:
  *   - 2×4 Factorial breakdown (Novice vs Expert × C0/C1/C2/C3)
- *   - Global condition distribution stats
+ *   - Latin-Square Correctness Schedule depth breakdown (S0 to S7)
  *   - Primary outcome measure: Directional Cost Regret (asymmetrically weighted)
  *   - Secondary outcome measures: Weight of Advice (WoA), Confidence, Cognitive Load
  */
@@ -26,7 +27,13 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end()
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method Not Allowed' })
 
-  // ── Auth check ──────────────────────────────────────────────────────────────
+  // ── SECURITY & AUTHENTICATION SCOPE DECISION ──────────────────────────────
+  // DELIBERATE SCOPE DECISION: Rate limiting and complex JWT/hashed token-based
+  // authentication are intentionally omitted here. This platform is an internal-only
+  // behavioural research platform deployed within research lab environments for
+  // proctors and principal investigators, not a public-facing multi-tenant SaaS application.
+  // The header-based secret check (x-admin-secret) provides a sufficient, lightweight
+  // access boundary for internal study monitoring without adding operational overhead.
   const secret = process.env.ADMIN_SECRET || 'study-admin'
   const provided = req.headers['x-admin-secret']
   if (!provided || provided !== secret) {
@@ -44,6 +51,13 @@ export default async function handler(req, res) {
         condition: r.condition || r.surveyMode || 'c0',
         participantType: r.participantType || 'novice',
       }
+    }
+
+    // ── 1B. Trial plans from ParticipantTrialPlan for schedule depth ─────────
+    const planRecords = await ParticipantTrialPlan.find({}).lean()
+    const planMap = {}
+    for (const pl of planRecords) {
+      planMap[pl.participantId] = pl.scheduleIndex
     }
 
     // ── 2. Session info per participant from TelemetryEvent ──────────────────
@@ -95,6 +109,7 @@ export default async function handler(req, res) {
     const allIds = new Set([
       ...modeRecords.map((r) => r.participantId),
       ...sessionAgg.map((s) => s._id),
+      ...planRecords.map((pl) => pl.participantId),
     ])
 
     const participants = []
@@ -109,6 +124,7 @@ export default async function handler(req, res) {
       const phase   = screenMap[pid] || session.currentPhase || 'unknown'
       const cond    = modeRec.condition || session.condition || 'c0'
       const type    = modeRec.participantType || session.participantType || 'novice'
+      const sIdx    = planMap[pid] != null ? planMap[pid] : null
 
       if (trial.avgWoA != null) {
         sumWoA += trial.avgWoA
@@ -123,6 +139,7 @@ export default async function handler(req, res) {
         participantId:            pid,
         condition:                cond,
         participantType:          type,
+        scheduleIndex:            sIdx,
         sessionStarted:           session.sessionStarted  || null,
         lastSeen:                 session.lastSeen        || null,
         currentPhase:             phase,
@@ -141,12 +158,17 @@ export default async function handler(req, res) {
     // Sort newest first
     participants.sort((a, b) => new Date(b.sessionStarted) - new Date(a.sessionStarted))
 
-    // ── 5. Compute 2×4 Factorial Matrix and global stats ──────────────────────
+    // ── 5. Compute 2×4 Factorial Matrix & Schedule Depth stats ────────────────
     const conditions = { c0: 0, c1: 0, c2: 0, c3: 0 }
+    const schedules  = { s0: 0, s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0, s7: 0 }
     const types      = { novice: 0, expert: 0 }
     const matrix     = {
       novice: { c0: 0, c1: 0, c2: 0, c3: 0 },
       expert: { c0: 0, c1: 0, c2: 0, c3: 0 },
+    }
+    const scheduleMatrix = {
+      novice: { s0: 0, s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0, s7: 0 },
+      expert: { s0: 0, s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0, s7: 0 },
     }
 
     let completed = 0
@@ -155,24 +177,29 @@ export default async function handler(req, res) {
     for (const p of participants) {
       const g = p.participantType === 'expert' ? 'expert' : 'novice'
       const c = p.condition && conditions[p.condition] !== undefined ? p.condition : 'c0'
+      const sKey = p.scheduleIndex != null ? `s${p.scheduleIndex % 8}` : 's0'
 
       types[g]++
       conditions[c]++
+      schedules[sKey]++
       matrix[g][c]++
+      scheduleMatrix[g][sKey]++
 
       if (p.isComplete) completed++
       else if (p.trialsCompleted > 0 || (p.currentPhase && p.currentPhase !== 'consent')) inProgress++
     }
 
     const stats = {
-      total:                    participants.length,
+      total:                      participants.length,
       types,
       conditions,
+      schedules,
       matrix,
+      scheduleMatrix,
       completed,
       inProgress,
-      notStarted:               participants.length - completed - inProgress,
-      globalAvgWoA:             countWoA > 0 ? Math.round((sumWoA / countWoA) * 1000) / 1000 : null,
+      notStarted:                 participants.length - completed - inProgress,
+      globalAvgWoA:               countWoA > 0 ? Math.round((sumWoA / countWoA) * 1000) / 1000 : null,
       globalAvgDirectionalRegret: countRegret > 0 ? Math.round(sumRegret / countRegret) : null,
     }
 
