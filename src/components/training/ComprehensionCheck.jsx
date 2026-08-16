@@ -138,11 +138,11 @@ export default function ComprehensionCheck({ onPass, onFail, onExclude }) {
     setScore(correctCount)
     setHasSubmitted(true)
 
-    if (correctCount === COMPREHENSION_ITEMS.length) {
-      // 4/4 Correct -> Passed!
+    if (correctCount >= 3) {
+      // 3/4 or 4/4 Correct -> Passed!
       onPass({ attempt, score: correctCount, answers })
     } else {
-      // Allow retry or review without blocking
+      // Less than 3/4 -> Allow retry or review
       onFail({ attempt, score: correctCount, answers })
     }
   }
@@ -295,7 +295,7 @@ export default function ComprehensionCheck({ onPass, onFail, onExclude }) {
                         type="button"
                         className={isSelected ? 'choice selected' : 'choice'}
                         onClick={() => handleSelect(item.id, opt.value)}
-                        disabled={hasSubmitted && score === COMPREHENSION_ITEMS.length}
+                        disabled={hasSubmitted && score >= 3}
                         style={{ padding: '12px 14px', fontSize: 13.5 }}
                       >
                         <span style={{ width: 22, height: 22, fontSize: 10 }}>
