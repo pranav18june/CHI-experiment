@@ -1,6 +1,7 @@
 import React from 'react'
 import { Step1, Step2, Step3, Step4 } from './TrialSteps.jsx'
 import { formatCurrency } from '../../utils/formatters.js'
+import { scenarios } from '../../scenarios/index.js'
 
 export function TrialShell({
   trial, type, trialStep, condition, explanation, fetchedAdvice, isFetchingAdvice,
@@ -48,10 +49,29 @@ export function TrialShell({
             <div className="chart-placeholder">
               <div className="axis y"><span>higher</span><span>lower</span></div>
               <div className="grid-lines"><i /><i /><i /><i /><i /></div>
-              <div className="placeholder-pulse">
-                <span>Data visualization</span>
-                <p>{chartHint}</p>
-              </div>
+              {/* Show per-scenario image when available (user-supplied images named 1.png..12.png) */}
+              {
+                (() => {
+                  const idx = scenarios.findIndex((s) => s.id === trial.id)
+                  const imageOrder = idx >= 0 ? idx + 1 : null
+                  const imageSrc = imageOrder ? `/dist/assets/graphs/${imageOrder}.png` : null
+                  if (imageSrc) {
+                    return (
+                      <img
+                        src={imageSrc}
+                        alt={`Historical data for ${title}`}
+                        className="chart-image"
+                      />
+                    )
+                  }
+                  return (
+                    <div className="placeholder-pulse">
+                      <span>Data visualization</span>
+                      <p>{chartHint}</p>
+                    </div>
+                  )
+                })()
+              }
               <div className="axis x"><span>Earlier</span><span>Most recent</span></div>
             </div>
             <p className="chart-footnote">The final study will display the real historical series supplied by the research dataset.</p>

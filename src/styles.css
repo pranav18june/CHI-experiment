@@ -189,6 +189,10 @@ h2 { font-size:15px; line-height:1.25; letter-spacing:-.02em; }
 @media(max-width:560px) { .adm-kpi-row { grid-template-columns:1fr; } .adm-filters { flex-direction:column; align-items:stretch; } .adm-row-count { margin-left:0; } }
 
 /* ── Interactive Number-Line Component (Protocol §5.9) ─────────────────────── */
+.chart-image { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; display:block; z-index:0; }
+/* Ensure gridlines and axes sit above the image */
+.grid-lines, .axis { z-index:2; }
+.placeholder-pulse { z-index:3; }
 .number-line-component { display:grid; gap:12px; margin:4px 0 14px; }
 .number-line-header { display:flex; align-items:center; gap:10px; }
 .number-line-track-wrap { position:relative; padding:12px 8px 24px; user-select:none; }
