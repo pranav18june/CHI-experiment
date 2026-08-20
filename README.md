@@ -93,6 +93,27 @@ npm run dev
 npm run build
 ```
 
+### Scenario graph images
+
+Place the 12 scored-scenario graphs in `public/graphs/` using the names `1.png` through `12.png`.
+The app maps those filenames to the scored scenario order in `src/scenarios/index.js`; Vite copies
+them to the production output and serves them at `/graphs/1.png` through `/graphs/12.png`.
+
+### Direct route access
+
+Study phase URLs can be opened directly without completing earlier phases. For a specific
+trial, add its ID to the practice or scored route:
+
+```text
+/practice?trial=1
+/scored?trial=5&condition=c2
+```
+
+`trial` is a 1-based position in the active trial list; `trialId` can be used for an ID-based
+link instead. The `condition` parameter accepts `c0`, `c1`, `c2`, or `c3`.
+Direct trial URLs start at Step 1; normal in-study navigation and autosave resume behavior
+remain unchanged when these parameters are omitted.
+
 ---
 
 ## 🔐 Security & Data Governance

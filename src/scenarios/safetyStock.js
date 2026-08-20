@@ -37,8 +37,8 @@ export const safetyStockScenarios = [
     decisionPrompt: DECISION_PROMPT,
 
     historicalStatistic: {
-      label: 'Average weekly demand variability',
-      value: '$12,570',
+      label: 'Historical weekly demand variation',
+      value: '$12,600',
     },
 
     chart: {
@@ -82,15 +82,16 @@ export const safetyStockScenarios = [
 
     correctExplanations: {
       c0: null,
-      c1: 'Driver weights reflect stable historical demand with moderate seasonal adjustments.',
+      c1: {
+        factors: [
+          { label: 'Promotional markdown present', value: '+0.26' },
+          { label: 'Temperature', value: '−0.28' },
+        ],
+      },
       c2:
-        'This product category exhibits steady historical demand with average weekly variability of $12,570. ' +
-        'Based on historical sales stability and standard service level targets, a safety stock buffer of ' +
-        '$29,251 cost-optimally balances inventory holding costs against stockout risk.',
+        'Demand for this category holds fairly steady from week to week, with only modest lifts during colder weeks and active promotions. The AI recommends a buffer of $29,251 to absorb ordinary week-to-week swings without tying up excess capital.',
       c3:
-        'This recommendation is calibrated to the historical weekly demand variability of $12,570. ' +
-        'If weekly variability were to increase significantly above $16,000, a larger buffer would be required; ' +
-        'however, historical stability confirms $29,251 is cost-optimal.',
+        "This buffer is set for weekly demand swings of about $12,600. The AI would recommend a larger buffer only if this category's week-to-week demand were markedly more volatile than that.",
     },
 
     metadata: {
@@ -117,7 +118,7 @@ export const safetyStockScenarios = [
     decisionPrompt: DECISION_PROMPT,
 
     historicalStatistic: {
-      label: 'Average weekly demand variability',
+      label: 'Historical weekly demand variation',
       value: '$21,100',
     },
 
@@ -160,15 +161,16 @@ export const safetyStockScenarios = [
 
     correctExplanations: {
       c0: null,
-      c1: 'Driver weights capture regular seasonal swings and temperature-driven demand shifts.',
+      c1: {
+        factors: [
+          { label: 'Holiday-week indicator', value: '+0.43' },
+          { label: 'Temperature', value: '−0.45' },
+        ],
+      },
       c2:
-        'Historical sales for this category demonstrate notable seasonal volatility averaging $21,100 per week. ' +
-        'To protect customer service levels during high-volume holiday periods and weather transitions, ' +
-        'a safety stock buffer of $49,159 is necessary and cost-optimal.',
+        'This category swings noticeably from week to week, especially around holiday timing and colder weather. The AI recommends a substantial buffer of $49,159 to cover these sizeable, predictable peaks.',
       c3:
-        'This recommendation accounts for the full historical variability of $21,100. ' +
-        'If demand volatility were as low as $14,800, a smaller buffer of $34,411 would suffice; ' +
-        'however, historical data confirms $49,159 is required.',
+        "This buffer is set for weekly demand swings of about $21,100. The AI would recommend a smaller buffer only if this category's week-to-week demand were considerably steadier than that.",
     },
 
     metadata: {
@@ -195,7 +197,7 @@ export const safetyStockScenarios = [
     decisionPrompt: DECISION_PROMPT,
 
     historicalStatistic: {
-      label: 'Average weekly demand variability',
+      label: 'Historical weekly demand variation',
       value: '$28,800',
     },
 
@@ -238,14 +240,16 @@ export const safetyStockScenarios = [
 
     correctExplanations: {
       c0: null,
-      c1: 'Driver weights reflect high historical variance calibrated to $28,800/wk demand standard deviation.',
+      c1: {
+        factors: [
+          { label: 'Temperature', value: '−0.47' },
+          { label: 'Holiday-week indicator', value: '+0.23' },
+        ],
+      },
       c2:
-        'Given high historical demand variability averaging $28,800 per week, setting a safety stock ' +
-        'buffer of $67,054 correctly shields against stockouts while avoiding excessive working capital tie-up.',
+        'This category shows the largest week-to-week swings of any seen so far, particularly during colder weeks. The AI recommends a sizeable buffer of $67,054 to cover these substantial, irregular spikes.',
       c3:
-        'This recommendation is calibrated to the historical variability of $28,800. ' +
-        'If demand swings escalated to $38,900, a larger buffer of $90,523 would be warranted; ' +
-        'however, historical patterns confirm $67,054 is optimal.',
+        "This buffer is set for weekly demand swings of about $28,800. The AI would recommend a larger buffer only if this category's week-to-week demand were substantially more volatile than that.",
     },
 
     metadata: {

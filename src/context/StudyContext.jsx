@@ -119,8 +119,23 @@ export function StudyProvider({ children }) {
   const [comprehensionPassed, setComprehensionPassed] = useState(false)
   const [isExcluded, setIsExcluded] = useState(false)
 
+  const queryParams = new URLSearchParams(location.search)
+  const requestedCondition = queryParams.get('condition')
+  const requestedTrialId = queryParams.get('trial') || queryParams.get('trialId')
+  const availableTrials = location.pathname === '/practice' ? practiceTrials : trials
+  const requestedTrialNumber = Number.parseInt(requestedTrialId, 10)
+  const requestedTrialIndex = Number.isInteger(requestedTrialNumber) && requestedTrialNumber > 0
+    ? requestedTrialNumber - 1
+    : availableTrials.findIndex((item) => item.id === requestedTrialId)
+  const hasValidDirectTrial = requestedTrialIndex >= 0 && requestedTrialIndex < availableTrials.length
+  const directTrialIndex = hasValidDirectTrial ? requestedTrialIndex : 0
+  const hasDirectTrial = (location.pathname === '/practice' || location.pathname === '/scored') && hasValidDirectTrial
+
   // ── Condition (c0 / c1 / c2 / c3) — assigned at participant-type stage ────
   const [condition, setCondition] = useState(() => {
+    if ((location.pathname === '/scored' || location.pathname === '/practice') && CONDITIONS.includes(requestedCondition)) {
+      return requestedCondition
+    }
     try {
       const saved = localStorage.getItem(AUTOSAVE_STORAGE_KEY)
       if (saved) {
@@ -155,18 +170,17 @@ export function StudyProvider({ children }) {
   useEffect(() => {
     const matched = PATH_TO_PHASE[location.pathname]
 
+    // Direct review URLs can select a condition without running participant assignment.
+    if ((location.pathname === '/scored' || location.pathname === '/practice') && CONDITIONS.includes(requestedCondition) && condition !== requestedCondition) {
+      setCondition(requestedCondition)
+      telemetry.setSessionIdentity({ condition: requestedCondition })
+    }
+
     // Gating 1: If excluded, lock to /excluded
-    if (isExcluded) {
+    if (isExcluded && location.pathname !== '/scored') {
       if (location.pathname !== '/excluded') {
         navigate('/excluded', { replace: true })
       }
-      return
-    }
-
-    // Gating 2: If novice has not passed comprehension check, block /practice and /scored
-    if (participantType === 'novice' && !comprehensionPassed && (location.pathname === '/practice' || location.pathname === '/scored')) {
-      navigate('/check', { replace: true })
-      setPhaseState('check')
       return
     }
 
@@ -178,7 +192,7 @@ export function StudyProvider({ children }) {
         setIsPractice(true)
       }
     }
-  }, [location.pathname, isExcluded, comprehensionPassed, participantType, phase, navigate])
+  }, [location.pathname, location.search, isExcluded, comprehensionPassed, participantType, phase, condition, navigate])
 
   const setPhase = useCallback((nextPhase) => {
     setPhaseState(nextPhase)
@@ -194,8 +208,10 @@ export function StudyProvider({ children }) {
   }, [navigate, location.pathname])
 
   // ── Trial tracking ─────────────────────────────────────────────────────────
-  const [isPractice, setIsPractice] = useState(() => location.pathname !== '/scored')
-  const [trialIndex, setTrialIndex] = useState(0)
+  const [isPractice, setIsPractice] = useState(() => location.pathname === '/practice')
+  const [trialIndex, setTrialIndex] = useState(() => (
+    requestedTrialId ? directTrialIndex : 0
+  ))
   const [trialStep, setTrialStep] = useState(1)
 
   // ── Step data ────────────────────────────────────────────────────────────
@@ -238,13 +254,13 @@ export function StudyProvider({ children }) {
         const elapsed = Date.now() - (parsed.savedAt || 0)
         if (elapsed < MAX_RESUME_WINDOW_MS && parsed.participantId === participantId) {
           if (parsed.participantType) setParticipantType(parsed.participantType)
-          if (parsed.condition && CONDITIONS.includes(parsed.condition)) setCondition(parsed.condition)
+          if (!requestedCondition && parsed.condition && CONDITIONS.includes(parsed.condition)) setCondition(parsed.condition)
           if (parsed.trialPlan) setTrialPlan(parsed.trialPlan)
           if (typeof parsed.comprehensionPassed === 'boolean') setComprehensionPassed(parsed.comprehensionPassed)
           if (typeof parsed.isExcluded === 'boolean') setIsExcluded(parsed.isExcluded)
-          if (typeof parsed.isPractice === 'boolean') setIsPractice(parsed.isPractice)
-          if (typeof parsed.trialIndex === 'number') setTrialIndex(parsed.trialIndex)
-          if (typeof parsed.trialStep === 'number') setTrialStep(parsed.trialStep)
+          if (!hasDirectTrial && typeof parsed.isPractice === 'boolean') setIsPractice(parsed.isPractice)
+          if (!hasDirectTrial && typeof parsed.trialIndex === 'number') setTrialIndex(parsed.trialIndex)
+          if (!hasDirectTrial && typeof parsed.trialStep === 'number') setTrialStep(parsed.trialStep)
           if (parsed.initialEstimate) setInitialEstimate(parsed.initialEstimate)
           if (parsed.initialConfidence) setInitialConfidence(parsed.initialConfidence)
 

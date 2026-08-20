@@ -54,7 +54,7 @@ export function TrialShell({
                 (() => {
                   const idx = scenarios.findIndex((s) => s.id === trial.id)
                   const imageOrder = idx >= 0 ? idx + 1 : null
-                  const imageSrc = imageOrder ? `/dist/assets/graphs/${imageOrder}.png` : null
+                  const imageSrc = imageOrder ? `/graphs/${imageOrder}.png` : null
                   if (imageSrc) {
                     return (
                       <img

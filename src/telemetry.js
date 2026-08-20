@@ -377,6 +377,7 @@ class TelemetryService {
     trialId,
     scenario,
     aiRecommendation: customAiRec,
+    isPractice,
     isCorrect,
     errorDirection,
     groundTruthOptimal: customOptimal,

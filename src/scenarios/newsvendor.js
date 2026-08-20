@@ -37,7 +37,7 @@ export const newsvendorScenarios = [
     decisionPrompt: DECISION_PROMPT,
 
     historicalStatistic: {
-      label: 'Average historical peak-week demand',
+      label: 'Average demand in past peak weeks',
       value: '$263,500',
     },
 
@@ -80,14 +80,16 @@ export const newsvendorScenarios = [
 
     correctExplanations: {
       c0: null,
-      c1: 'Peak holiday demand driver weights calibrated to $263,500 historical average.',
+      c1: {
+        factors: [
+          { label: 'Holiday-week indicator', value: '+0.44' },
+          { label: 'Temperature', value: '−0.40' },
+        ],
+      },
       c2:
-        'Historical peak-week demand for this department averages $263,500 across holiday observations. ' +
-        'Incorporating seasonal lift and critical fractile margins, an optimal order of $346,257 maximizes expected holiday profit.',
+        'This category spikes dramatically during holiday weeks, historically more than doubling ordinary demand, and running short in that one week is expensive. The AI recommends ordering $346,257 for the upcoming peak.',
       c3:
-        'This recommendation reflects average peak-week demand of $263,500. ' +
-        'If expected peak demand were only $159,600, an order of $242,380 would suffice; ' +
-        'however, historical holiday volume supports $346,257.',
+        'This order is set for expected peak-week demand of about $263,500. The AI would recommend a smaller order only if the upcoming peak were expected to fall well below that level.',
     },
 
     metadata: {
@@ -114,7 +116,7 @@ export const newsvendorScenarios = [
     decisionPrompt: DECISION_PROMPT,
 
     historicalStatistic: {
-      label: 'Average historical peak-week demand',
+      label: 'Average demand in past peak weeks',
       value: '$165,700',
     },
 
@@ -157,14 +159,16 @@ export const newsvendorScenarios = [
 
     correctExplanations: {
       c0: null,
-      c1: 'Moderate holiday lift driver weights calibrated to $165,700 historical base.',
+      c1: {
+        factors: [
+          { label: 'Holiday-week indicator', value: '+0.37' },
+          { label: 'Temperature', value: '−0.44' },
+        ],
+      },
       c2:
-        'Historical peak-week sales average $165,700 for this category. Based on markdown performance and margin structure, ' +
-        'an order of $210,921 captures expected seasonal demand without generating post-holiday surplus inventory.',
+        'This category shows a clear but moderate holiday lift, historically running somewhat above ordinary weekly demand. The AI recommends ordering $210,921 for the upcoming peak.',
       c3:
-        'This recommendation reflects historical peak demand of $165,700. ' +
-        'If holiday demand surged to $229,000, an order of $274,197 would be justified, ' +
-        'but historical data confirms $210,921 is optimal.',
+        'This order is set for expected peak-week demand of about $165,700. The AI would recommend a larger order only if the upcoming peak were expected to run well above that level.',
     },
 
     metadata: {
@@ -191,7 +195,7 @@ export const newsvendorScenarios = [
     decisionPrompt: DECISION_PROMPT,
 
     historicalStatistic: {
-      label: 'Average historical peak-week demand',
+      label: 'Average demand in past peak weeks',
       value: '$163,900',
     },
 
@@ -233,14 +237,16 @@ export const newsvendorScenarios = [
 
     correctExplanations: {
       c0: null,
-      c1: 'Variable holiday sales driver weights calibrated to $163,900 base.',
+      c1: {
+        factors: [
+          { label: 'Holiday-week indicator', value: '+0.37' },
+          { label: 'Temperature', value: '−0.38' },
+        ],
+      },
       c2:
-        'Despite demand variability across past holiday seasons (averaging $163,900), ordering $218,222 provides ' +
-        'optimal peak coverage while balancing underage and overage risks.',
+        'This category shows a strong but highly uneven holiday pattern — some years spike far higher than others — and a stockout in the peak week is costly. The AI recommends ordering $218,222 to cover a wide range of possible outcomes.',
       c3:
-        'This recommendation is based on historical peak demand of $163,900. ' +
-        'If peak demand dropped to $87,500, a conservative order of $141,844 would be appropriate, ' +
-        'but historical data warrants $218,222.',
+        'This order is set for expected peak-week demand of about $163,900. The AI would recommend a smaller order only if the upcoming peak were expected to fall well below that level.',
     },
 
     metadata: {

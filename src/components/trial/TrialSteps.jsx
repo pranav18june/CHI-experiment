@@ -3,6 +3,24 @@ import Scale from '../common/Scale.jsx'
 import NumberLineInput from '../common/NumberLineInput.jsx'
 import { validateNumericEstimate, validateVerificationResponse } from '../../services/validationService.js'
 
+function getDecisionQuestion(trial, step) {
+  const location = `${trial.title || trial.store}, ${trial.category || trial.department}`
+
+  if (trial.scenarioType === 'safetyStock') {
+    return step === 1
+      ? `How large a safety stock buffer should ${location} hold, to absorb normal week-to-week swings in demand?`
+      : `Given everything you've seen, what's your final safety stock buffer for ${location}?`
+  }
+
+  if (trial.scenarioType === 'newsvendor') {
+    return step === 1
+      ? `How much should ${location} order for the upcoming peak week, given the risk of running short?`
+      : `Given everything you've seen, what's your final order quantity for ${location}'s upcoming peak week?`
+  }
+
+  return null
+}
+
 /**
  * Step 1 — Initial independent participant estimate (before AI reveal).
  * Interactive Protocol §5.9 Number-Line & Slider Input anchored to historical baseline.
@@ -21,7 +39,10 @@ export function Step1({ type, trial, initialEstimate, onInitialEstimate, initial
 
   return (
     <form className="decision-form" onSubmit={handleSubmit}>
-      <label htmlFor="initial-decision">{type.initialPrompt}</label>
+      <h2>{getDecisionQuestion(trial, 1) || type.initialPrompt}</h2>
+      {getDecisionQuestion(trial, 1) && (
+        <p className="field-note">Enter a dollar amount using the scale or the input box.</p>
+      )}
       
       <NumberLineInput
         id="initial-decision"
@@ -32,10 +53,6 @@ export function Step1({ type, trial, initialEstimate, onInitialEstimate, initial
         autoFocus
       />
 
-      <p className="field-note">
-        Use the number line scale or type a dollar value. The AI recommendation is not yet visible.
-      </p>
-      
       <Scale
         label="How confident are you in this estimate?"
         low="Not at all confident"
@@ -55,6 +72,8 @@ export function Step1({ type, trial, initialEstimate, onInitialEstimate, initial
  */
 export function Step2({ condition, explanation, onContinue, isFetchingAdvice }) {
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const explanationFactors = explanation?.factors || []
+  const explanationText = typeof explanation === 'string' ? explanation : null
 
   function handleContinue() {
     if (isSubmitting || isFetchingAdvice) return
@@ -71,18 +90,28 @@ export function Step2({ condition, explanation, onContinue, isFetchingAdvice }) 
         </section>
       ) : (
         <>
-          {explanation && (
+          {condition === 'c1' && (explanationFactors.length > 0 || explanationText) && (
             <section className="card explanation">
-              <p className="eyebrow">
-                {condition === 'c3' ? 'What would change this' : 'Context'}
-              </p>
-              <p>{explanation}</p>
+              <p className="eyebrow">Key factors</p>
+              {explanationFactors.length > 0 ? (
+                <div className="driver-list">
+                  {explanationFactors.map(({ label, value }) => (
+                    <div key={label}>
+                      <span>{label}</span>
+                      <strong>{value}</strong>
+                    </div>
+                  ))}
+                </div>
+              ) : <p>{explanationText}</p>}
             </section>
           )}
-          {condition === 'c0' && (
-            <p className="field-note" style={{ margin: '0 0 4px' }}>
-              Review the chart and the AI recommendation above before continuing.
-            </p>
+          {(condition === 'c2' || condition === 'c3') && explanationText && (
+            <section className="card explanation">
+              <p className="eyebrow">
+                {condition === 'c3' ? 'Verification' : 'Context'}
+              </p>
+              <p>{explanationText}</p>
+            </section>
           )}
         </>
       )}
@@ -172,7 +201,7 @@ export function Step4({
 
   return (
     <form className="decision-form" onSubmit={handleSubmit}>
-      <label htmlFor="final-decision">{type.decisionPrompt}</label>
+      <h2>{getDecisionQuestion(trial, 4) || type.decisionPrompt}</h2>
       
       <NumberLineInput
         id="final-decision"
