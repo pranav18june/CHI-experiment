@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { formatCurrency } from '../../utils/formatters.js'
+import STUDY_COPY from '../../config/studyCopy.js'
 
 const ATTENTION_CHOICES = [
   { value: 'strongly_disagree', label: 'Strongly Disagree' },
@@ -100,21 +101,80 @@ export function PracticeFeedback({ response, optimal, onNext, onAttentionFail, i
 export { default as PostTask } from './PostTaskForm.jsx'
 
 export function Debrief({ participantId, onComplete }) {
+  const c = STUDY_COPY
   return (
     <main className="welcome-shell">
       <div className="wordmark"><span className="mark" />Decision Study</div>
-      <section className="welcome-card">
+      <section className="welcome-card consent-page">
         <p className="eyebrow">Study information</p>
-        <h1>Thank you for participating.</h1>
-        <p className="lede">Now that you have completed all decision rounds, we can share more about the study.</p>
-        <div className="consent-placeholder">
-          <strong>TODO_DEBRIEF_TEXT</strong>
-          <span>
-            Ethics-approved debrief text will appear here. This will disclose that some AI
-            recommendations were intentionally inaccurate, explain the study purpose, and
-            provide researcher contact details and withdrawal rights.
-          </span>
-        </div>
+        <h1>Thank you — and one thing we need to tell you.</h1>
+
+        <section className="consent-copy">
+          {/*
+            §5.11 requires the debrief to disclose the deception. It comes first,
+            in plain words, before any explanation of the science — a participant
+            should not have to read three paragraphs to find out they were misled.
+          */}
+          <h2>Some of the AI recommendations were deliberately wrong</h2>
+          <p>
+            Half of the twelve recommendations you saw were incorrect on purpose. They were
+            produced by feeding the forecasting model a deliberately mistaken assumption —
+            for example, telling it that demand swung more widely than it really did — so the
+            number it produced was genuinely too high or too low.
+          </p>
+          <p>
+            We did not tell you this beforehand, and we are sorry for the deception. If you
+            had known that some recommendations were wrong, you would have checked all of them
+            differently, and the study could not have measured what we needed it to measure.
+            Nothing you did was wrong, and there was no way to score badly by trusting the AI.
+          </p>
+
+          <h2>What we were actually studying</h2>
+          <p>
+            We are testing whether the <em>way</em> an AI explains its recommendation changes
+            how well people catch its mistakes. Different participants saw the same
+            recommendations with different kinds of explanation: some saw none, some saw the
+            factors behind the number, some a written summary, and some a statement of the
+            assumption the AI had made.
+          </p>
+          <p>
+            The question is whether one of those formats helps someone without a supply chain
+            background make decisions as sound as an experienced planner's — particularly
+            avoiding the expensive kind of error. If it does, explanation design becomes a way
+            of putting expertise within reach of people who do not yet have it.
+          </p>
+
+          <h2>Your data</h2>
+          <p>
+            Your responses are stored under a study code, not your name. They are kept
+            {' '}{c.dataStorageLocation || '[storage location]'} for
+            {' '}{c.dataRetentionPeriod || '[retention period]'}, and reported only in
+            aggregate — no individual participant is identifiable in anything we publish.
+          </p>
+          <p>
+            You may withdraw your data within {c.withdrawalWindow || '[withdrawal window]'},
+            with no reason needed and no effect on your compensation. Email
+            {' '}<strong>{c.contactEmail || '[contact email]'}</strong> quoting the session code
+            below and we will delete everything associated with it.
+          </p>
+
+          <h2>Questions or concerns</h2>
+          <p>
+            {c.principalInvestigator || '[principal investigator]'}
+            {c.institution ? `, ${c.institution}` : ''} — {c.contactEmail || '[contact email]'}
+          </p>
+          <p>
+            This study was approved by {c.ethicsCommittee || '[ethics committee]'}
+            {c.ethicsApprovalRef ? ` (reference ${c.ethicsApprovalRef})` : ''}. If you have a
+            concern you would rather raise with someone independent of the research team,
+            contact them at {c.ethicsContactEmail || '[ethics contact]'}.
+          </p>
+          <p>
+            Please do not describe the task to anyone who may take part later — knowing in
+            advance that some recommendations are wrong would change how they respond.
+          </p>
+        </section>
+
         <button className="button primary full" type="button" onClick={onComplete}>
           Finish <span>→</span>
         </button>
@@ -125,6 +185,7 @@ export function Debrief({ participantId, onComplete }) {
 }
 
 export function Complete({ participantId }) {
+  const c = STUDY_COPY
   return (
     <main className="welcome-shell">
       <div className="wordmark"><span className="mark" />Decision Study</div>
@@ -132,14 +193,26 @@ export function Complete({ participantId }) {
         <div className="checkmark">✓</div>
         <p className="eyebrow">Study complete</p>
         <h1>Thank you for your time.</h1>
-        <p className="lede">Your responses have been recorded for this session.</p>
-        <div className="consent-placeholder">
-          <strong>TODO_COMPLETION_COPY</strong>
-          <span>
-            Participant credit / compensation codes, survey platform redirects, and closing
-            instructions will be configured here based on the final recruitment channel.
-          </span>
-        </div>
+        <p className="lede">
+          Your responses have been recorded. {c.compensation.payoutMethod
+            ? `Payment will be made by ${c.compensation.payoutMethod}.`
+            : ''}
+        </p>
+
+        {c.creditNote && <p className="lede">{c.creditNote}</p>}
+
+        <p className="lede">
+          Keep the code below. You will need it if you later want your data removed
+          {c.withdrawalWindow ? ` (within ${c.withdrawalWindow})` : ''} — email
+          {' '}{c.contactEmail || '[contact email]'}.
+        </p>
+
+        {c.redirectUrl && (
+          <a className="button primary full" href={c.redirectUrl}>
+            {c.redirectLabel || 'Continue'} <span>→</span>
+          </a>
+        )}
+
         <p className="participant-code">Confirmation code: {participantId}</p>
       </section>
     </main>

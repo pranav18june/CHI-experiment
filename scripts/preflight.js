@@ -69,11 +69,9 @@ try {
     if (/VITE_ALLOW_URL_OVERRIDES|allowUrlOverrides/.test(bundle) && /"true"===/.test(bundle) === false) {
       pass('built bundle present')
     }
-    if (bundle.includes('TODO_DEBRIEF_TEXT')) fail('built bundle still contains TODO_DEBRIEF_TEXT — debrief copy is a placeholder (E-1)')
-    else pass('no TODO_DEBRIEF_TEXT in bundle')
-    if (bundle.includes('TODO_INCENTIVE_COPY') || bundle.includes('TODO_ETHICS_COPY')) {
-      fail('built bundle still contains consent TODO copy (E-2)')
-    } else pass('no consent TODO copy in bundle')
+    if (/TODO_(DEBRIEF_TEXT|INCENTIVE_COPY|ETHICS_COPY|COMPLETION_COPY)/.test(bundle)) {
+      fail('built bundle still contains participant-facing TODO copy')
+    } else pass('no participant-facing TODO copy in bundle')
     if (/TODO_(C1_EXPLANATION|CHART_DATA|METADATA|DATASET)/.test(bundle)) {
       fail('built bundle contains stimulus TODO placeholders')
     } else pass('no stimulus TODO placeholders in bundle')
@@ -84,6 +82,23 @@ try {
 if (process.env.VITE_ALLOW_URL_OVERRIDES === 'true') {
   fail('VITE_ALLOW_URL_OVERRIDES=true — participants could override condition and trial from the URL')
 } else pass('URL overrides disabled for the participant build')
+
+// ── 2b. Participant-facing study facts (§5.10, §5.11, §11) ──────────────────
+console.log('\n2b. CONSENT / DEBRIEF FACTS')
+const { missingStudyCopy, STUDY_COPY } = await import(join(ROOT, 'src/config/studyCopy.js'))
+const missingCopy = missingStudyCopy()
+if (missingCopy.length) {
+  fail(`${missingCopy.length} required field(s) unfilled in src/config/studyCopy.js:`)
+  for (const f of missingCopy) console.log(`      · ${f}`)
+  console.log('      A consent form naming no ethics approval and no contact is not a')
+  console.log('      consent form, and a debrief nobody can act on does not discharge a')
+  console.log('      deception study\'s duty to its participants.')
+} else {
+  pass('every required consent/debrief fact is filled')
+  pass(`ethics approval: ${STUDY_COPY.ethicsCommittee} (${STUDY_COPY.ethicsApprovalRef})`)
+  pass(`participant contact: ${STUDY_COPY.contactEmail}`)
+}
+if (/\d/.test(STUDY_COPY.estimatedDuration)) pass(`advertised duration: ${STUDY_COPY.estimatedDuration} — confirm against pilot timings`)
 
 // ── 3. Counterbalancing (§5.6, §5.11) ───────────────────────────────────────
 console.log('\n3. COUNTERBALANCING')

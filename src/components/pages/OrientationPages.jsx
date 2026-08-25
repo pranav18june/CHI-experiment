@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import ChoiceList from '../common/ChoiceList.jsx'
+import STUDY_COPY, { bonusSentence } from '../../config/studyCopy.js'
 
 export function WelcomeScreen({ participantId, onStart }) {
   const [demographics, setDemographics] = useState({
@@ -31,15 +32,84 @@ export function WelcomeScreen({ participantId, onStart }) {
         <p className="lede">Please read carefully before proceeding.</p>
         <section className="consent-copy">
           <h2>About this study</h2>
-          <p>This study investigates how people make supply chain inventory decisions when presented with AI recommendations in different formats. You will review historical sales information and choose the inventory amount you would set.</p>
+          <p>
+            This study looks at how people make inventory decisions when an AI system
+            recommends a number. You will see real historical sales data for a store and
+            product category, decide how much stock to hold or order, then see what the AI
+            recommends and give a final answer.
+          </p>
           <ul>
-            <li><strong>Duration:</strong> approximately 20–25 minutes.</li>
-            <li><strong>Task:</strong> twelve inventory decisions across four scenario types, with confidence and effort ratings after each decision.</li>
-            <li><strong>Incentive:</strong> [TODO_INCENTIVE_COPY: participant compensation or course-credit information will appear here.]</li>
+            <li><strong>Duration:</strong> about {STUDY_COPY.estimatedDuration}.</li>
+            <li>
+              <strong>Task:</strong> twelve decisions, each in four short steps — your own
+              estimate, the AI&rsquo;s recommendation, a quick check of it, then your final
+              answer — followed by a closing questionnaire.
+            </li>
+            <li>
+              <strong>Payment:</strong>{' '}
+              {STUDY_COPY.compensation.baseAmount
+                ? <>{STUDY_COPY.compensation.baseAmount} for completing the study, plus {bonusSentence()}.</>
+                : <>[payment terms — see src/config/studyCopy.js]</>}
+              {STUDY_COPY.compensation.payoutMethod ? ` Paid by ${STUDY_COPY.compensation.payoutMethod}.` : ''}
+            </li>
           </ul>
-          <h2>Your rights</h2>
-          <p>Participation is voluntary. You may stop at any time before submitting your responses, without penalty. The decision task does not ask for your name, email address, or other direct identifier; responses are linked only to a study code.</p>
-          <p>[TODO_ETHICS_COPY: approved data-use, retention, withdrawal, study-contact, and ethics-review information will appear here.]</p>
+
+          {/*
+            §5.10 — the cost asymmetry is stated QUALITATIVELY and to BOTH groups.
+            It belongs here rather than in the novice training module: it is the
+            incentive, not decision-logic teaching, so experts must see it too or
+            knowing the asymmetry becomes confounded with expertise. The ratio and
+            the formula are never disclosed.
+          */}
+          <p>
+            One thing worth knowing before you start: the two ways of being wrong do not cost
+            the same. <strong>Running short and losing sales costs the business more than
+            holding some extra stock.</strong> Your bonus reflects that — being under is
+            penalised more heavily than being over by the same amount.
+          </p>
+
+          <h2>What taking part involves</h2>
+          <p>
+            There are no known risks beyond the mild tiredness of concentrating for
+            {' '}{STUDY_COPY.estimatedDuration}. There are no right answers you are expected to
+            know in advance, and you are not being tested — we are studying the interface, not
+            you. Some questions ask how demanding you found the task; answer them honestly,
+            including if the answer is &ldquo;very&rdquo;.
+          </p>
+
+          <h2>Your rights and your data</h2>
+          <p>
+            Taking part is voluntary. You may stop at any point by closing the tab, without
+            giving a reason and without any penalty. Nobody at your university or employer is
+            told whether you took part or how you performed.
+          </p>
+          <p>
+            We do not ask for your name, email address, or any other direct identifier.
+            Responses are stored under a random study code
+            {STUDY_COPY.dataStorageLocation ? ` ${STUDY_COPY.dataStorageLocation}` : ''} and kept
+            {' '}{STUDY_COPY.dataRetentionPeriod || '[retention period]'}. Results are published
+            only in aggregate; no individual is identifiable.
+          </p>
+          <p>
+            After finishing you will be given a session code. You can have your data deleted
+            within {STUDY_COPY.withdrawalWindow || '[withdrawal window]'} by emailing that code
+            to <strong>{STUDY_COPY.contactEmail || '[contact email]'}</strong>. Your payment is
+            unaffected.
+          </p>
+          <p>
+            <strong>{STUDY_COPY.principalInvestigator || '[principal investigator]'}</strong>
+            {STUDY_COPY.institution ? `, ${STUDY_COPY.institution}` : ''}
+            {' '}&middot; {STUDY_COPY.contactEmail || '[contact email]'}
+            <br />
+            Approved by {STUDY_COPY.ethicsCommittee || '[ethics committee]'}
+            {STUDY_COPY.ethicsApprovalRef ? ` (${STUDY_COPY.ethicsApprovalRef})` : ''}. To raise a
+            concern with someone independent of the research team, contact
+            {' '}{STUDY_COPY.ethicsContactEmail || '[ethics contact]'}.
+          </p>
+          <p className="field-note">
+            There is one more thing we will tell you about the study once you have finished.
+            It does not affect your payment or what you are asked to do.
+          </p>
         </section>
         <section className="demographics-section">
           <h2>Background information</h2>
