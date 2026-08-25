@@ -36,7 +36,9 @@ export default async function handler(req, res) {
     await connectToDatabase()
 
     // ── 1. Condition & Type assignments from ParticipantMode ─────────────────
-    const modeRecords = await ParticipantMode.find({}).lean()
+    const modeRecords = await ParticipantMode
+      .find({}, 'participantId priorParticipantId condition participantType status planIndex orderIndex assignmentSeq isThinkAloud')
+      .lean()
     const modeMap = {}
     for (const r of modeRecords) {
       modeMap[r.participantId] = {
@@ -53,7 +55,13 @@ export default async function handler(req, res) {
     }
 
     // ── 1B. Trial plans from ParticipantTrialPlan for schedule depth ─────────
-    const planRecords = await ParticipantTrialPlan.find({}).lean()
+    // Projection matters here: the dashboard needs three integers per
+    // participant, but each plan document carries the full 12-trial stimulus
+    // snapshot (~6-10 KB). Without this the endpoint pulled ~5 MB on every
+    // refresh at n=500, for data it then discarded.
+    const planRecords = await ParticipantTrialPlan
+      .find({}, 'participantId scheduleIndex orderIndex planIndex')
+      .lean()
     const planMap = {}
     for (const pl of planRecords) {
       planMap[pl.participantId] = {

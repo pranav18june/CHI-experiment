@@ -10,7 +10,8 @@
     "test:db": "node tests/integration_test.js",
     "db:bootstrap": "node scripts/bootstrap-indexes.js",
     "preflight": "node scripts/preflight.js",
-    "predeploy": "npm run build && npm run preflight"
+    "predeploy": "npm run build && npm run preflight",
+    "loadtest": "node scripts/loadtest.js"
   },
   "dependencies": {
     "mongodb": "^7.5.0",

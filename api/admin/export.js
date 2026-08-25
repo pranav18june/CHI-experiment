@@ -58,7 +58,11 @@ export default async function handler(req, res) {
     for (const m of modes) modeMap[m.participantId] = m
 
     // Fetch trial plans for scheduleIndex & stimulusContentHash
-    const plans = await ParticipantTrialPlan.find({}).lean()
+    // Only the per-trial stimulus hash is needed for traceability, not the
+    // whole snapshot.
+    const plans = await ParticipantTrialPlan
+      .find({}, 'participantId scheduleIndex trials.trialId trials.stimulusContentHash')
+      .lean()
     const planMap = {}
     for (const pl of plans) {
       const trialHashLookup = {}
