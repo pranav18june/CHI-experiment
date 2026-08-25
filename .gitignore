@@ -36,3 +36,8 @@ Thumbs.db
 # repo ships the derived parameters in the scenario files instead.
 walmart/
 olist/
+
+# Derivation pipeline — kept locally alongside the datasets it reads, not
+# published. The repo still proves the values: lib/optimizers.js re-derives
+# every optimum and perturbation, and `npm run preflight` asserts they match.
+scripts/derive/
