@@ -11,7 +11,7 @@ const SCORED_TRIAL_TOTAL = 12
  * Admin Participants API
  *
  * GET /api/admin/participants
- * Header: x-admin-secret: <ADMIN_SECRET env var, default: "study-admin">
+ * Header: x-admin-secret: <ADMIN_SECRET env var — required, 16+ chars, no default>
  *
  * Returns an aggregated summary of all participants for the research admin dashboard:
  *   - 2×4 Factorial breakdown (Novice vs Expert × C0/C1/C2/C3)

@@ -212,10 +212,18 @@ export default async function handler(req, res) {
     const trialResultsToUpsert = []
     const postTaskResponsesToUpsert = []
     const participantStatusUpdates = new Map() // participantId -> newStatus
+    let skippedEnvelopes = 0
 
     for (const ev of eventsToProcess) {
       if (!ev.eventId || !ev.eventType || !ev.participantId) {
-        continue // Skip invalid envelopes safely
+        // Never silent: an envelope without a participantId is unattributable,
+        // and this path once discarded every consent event (and so all
+        // demographics) without a trace.
+        console.warn('[telemetry] dropped unattributable envelope', {
+          eventId: ev?.eventId, eventType: ev?.eventType, participantId: ev?.participantId,
+        })
+        skippedEnvelopes++
+        continue
       }
 
       eventDocs.push({
@@ -494,6 +502,7 @@ export default async function handler(req, res) {
     return res.status(200).json({
       status: 'ok',
       eventsLogged: eventDocs.length,
+      skippedEnvelopes,
       trialsRecorded: trialResultsToUpsert.length,
       postTasksRecorded: postTaskResponsesToUpsert.length,
     })

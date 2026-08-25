@@ -107,13 +107,14 @@ export const safetyStockScenarios = [
     // constants, so the inputs behind the optimum must survive into the export.
     // SS = Z x sigma_weekly x sqrt(LT)  (Appendix B.3)
     //
-    // groundTruthOptimal is the Appendix A value and stays authoritative for
-    // scoring. Recomputing it from these constants agrees to within the
-    // protocol's own rounding (<0.02%): SS-1 29,250 vs 29,251; SS-2 49,169 vs
-    // 49,159; SS-3 67,061 vs 67,054. Re-derive with the same constants when
-    // running the sensitivity analysis rather than mixing the two.
+    // VERIFIED against walmart/train.csv: mu is the mean of ALL weeks and sigma
+    // the sd of NON-HOLIDAY weeks — that rule reproduces Appendix A's 12,573 /
+    // 21,135 / 28,826 exactly. Appendix B.2's stated "raw sample SD" does not
+    // (it gives 31,226 for SS-2, 48% off). The remaining <0.03% gap on the
+    // optimum is the protocol rounding its published sigma for display.
     metadata: {
       derivation:    'walmart-weekly-sales',
+      sigmaRule:     'sd of NON-HOLIDAY weeks (verified: reproduces Appendix A exactly)',
       reproducible:  true,
       demandMean:    83498,
       demandStd:     12573,
@@ -206,6 +207,7 @@ export const safetyStockScenarios = [
 
     metadata: {
       derivation:    'walmart-weekly-sales',
+      sigmaRule:     'sd of NON-HOLIDAY weeks (verified: reproduces Appendix A exactly)',
       reproducible:  true,
       demandMean:    77119,
       demandStd:     21135,
@@ -298,6 +300,7 @@ export const safetyStockScenarios = [
 
     metadata: {
       derivation:    'walmart-weekly-sales',
+      sigmaRule:     'sd of NON-HOLIDAY weeks (verified: reproduces Appendix A exactly)',
       reproducible:  true,
       demandMean:    58373,
       demandStd:     28826,

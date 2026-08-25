@@ -103,6 +103,7 @@ export const newsvendorScenarios = [
     // Q* = mu + z x sigma, critical ratio 0.65, z = 0.385 (Appendix B.3).
     metadata: {
       derivation:         'walmart-holiday-week-subset',
+      sigmaRule:          'mean and sd over HOLIDAY weeks (verified: reproduces Appendix A exactly)',
       reproducible:       true,
       peakWeekDemandMean: 263476,
       peakWeekDemandStd:  215016,
@@ -196,6 +197,7 @@ export const newsvendorScenarios = [
 
     metadata: {
       derivation:         'walmart-holiday-week-subset',
+      sigmaRule:          'mean and sd over HOLIDAY weeks (verified: reproduces Appendix A exactly)',
       reproducible:       true,
       peakWeekDemandMean: 165676,
       peakWeekDemandStd:  117520,
@@ -288,6 +290,7 @@ export const newsvendorScenarios = [
 
     metadata: {
       derivation:         'walmart-holiday-week-subset',
+      sigmaRule:          'mean and sd over HOLIDAY weeks (verified: reproduces Appendix A exactly)',
       reproducible:       true,
       peakWeekDemandMean: 163875,
       peakWeekDemandStd:  141160,

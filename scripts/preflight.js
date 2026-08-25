@@ -157,6 +157,60 @@ for (const s of [...scenarios, ...practiceScenarios]) {
 }
 if (!stimProblems) pass(`${scenarios.length} scored + ${practiceScenarios.length} practice stimuli clean (no TODOs, no leakage, charts and scales bound)`)
 
+// ── 4b. Optimizer reproducibility (§5.4, Appendix B) ────────────────────────
+console.log('\n4b. OPTIMIZER REPRODUCIBILITY')
+const { optimumFor, perturbedFor } = await import(join(ROOT, 'lib/optimizers.js'))
+let irreproducible = 0, maxErr = 0
+for (const s of scenarios) {
+  if (s.metadata?.reproducible !== true) {
+    fail(`${s.id}: not marked reproducible — value is not derived from data`)
+    irreproducible++
+    continue
+  }
+  const o = optimumFor(s), p = perturbedFor(s)
+  if (o == null || p == null) { fail(`${s.id}: optimizer could not recompute`); irreproducible++; continue }
+  const eo = Math.abs(o - s.groundTruthOptimal) / s.groundTruthOptimal
+  const ep = Math.abs(p - s.recommendation.incorrect) / s.recommendation.incorrect
+  maxErr = Math.max(maxErr, eo, ep)
+  if (eo > 0.005) { fail(`${s.id}: stored optimum ${s.groundTruthOptimal} vs computed ${Math.round(o)}`); irreproducible++ }
+  if (ep > 0.005) { fail(`${s.id}: stored incorrect ${s.recommendation.incorrect} vs computed ${Math.round(p)}`); irreproducible++ }
+}
+if (!irreproducible) {
+  pass(`all ${scenarios.length} optima and perturbations recompute from stored parameters (max ${(maxErr*100).toFixed(2)}% drift)`)
+}
+// The perturbation must stay inside the pre-registered band and keep 3 high / 3 low.
+const offs = scenarios.map((s) => (s.recommendation.incorrect - s.groundTruthOptimal) / s.groundTruthOptimal)
+const outOfBand = offs.filter((o) => Math.abs(o) < 0.25 || Math.abs(o) > 0.40).length
+if (outOfBand) fail(`${outOfBand} perturbation(s) outside the 25-40% band (§5.6)`)
+else pass(`every perturbation within 25-40% (${(Math.min(...offs.map(Math.abs))*100).toFixed(0)}-${(Math.max(...offs.map(Math.abs))*100).toFixed(0)}%)`)
+const highs = offs.filter((o) => o > 0).length
+if (highs !== offs.length / 2) fail(`error direction unbalanced: ${highs} high of ${offs.length}`)
+else pass(`error direction balanced: ${highs} high / ${offs.length - highs} low`)
+
+// §5.3 / §12 item 20: the participant must be able to verify the C3 boundary
+// against information that is actually on screen, so the surfaced statistic has
+// to describe the same quantity the incorrect version perturbs.
+const SURFACED_FOR = {
+  demandStd:                 /demand variation|volatility/i,
+  peakWeekDemandMean:        /peak week/i,
+  leadTimeStdDays:           /delivery-time variability/i,
+  dailyDemandMean:           /average daily demand/i,
+  revenueLostPerStockoutDay: /revenue at risk/i,
+  delayDaysWhenLate:         /delay when a shipment is late/i,
+  lateDeliveryProbability:   /late delivery rate/i,
+}
+let misaligned = 0
+for (const s of scenarios) {
+  const pp = s.metadata?.perturbedParameter
+  const re = SURFACED_FOR[pp]
+  if (!pp) { fail(`${s.id}: no perturbedParameter recorded`); misaligned++; continue }
+  if (!re || !re.test(s.historicalStatistic?.label || '')) {
+    fail(`${s.id}: surfaced "${s.historicalStatistic?.label}" does not describe perturbed "${pp}"`)
+    misaligned++
+  }
+}
+if (!misaligned) pass('every trial surfaces the parameter its incorrect version perturbs')
+
 // ── 5. Database ─────────────────────────────────────────────────────────────
 console.log('\n5. DATABASE')
 if (!process.env.MONGODB_URI) {

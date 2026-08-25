@@ -143,7 +143,12 @@ class TelemetryService {
 
     const metadata = {
       sessionId: createSessionId(),
-      participantId: null,
+      // A PROVISIONAL id, replaced by the canonical server-issued one at
+      // assignment (see adoptServerParticipantId). It must not be null: session
+      // start and consent are recorded before assignment exists, and the ingest
+      // endpoint skips any envelope without a participantId — which silently
+      // discarded consent, and with it every demographic field (§6).
+      participantId: createParticipantId(),
       condition: null,
       participantType: null,
       timezone: typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'unknown',

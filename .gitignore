@@ -31,3 +31,8 @@ pnpm-debug.log*
 # OS metadata
 .DS_Store
 Thumbs.db
+
+# Source datasets (140 MB) — derivation scripts read these locally, but the
+# repo ships the derived parameters in the scenario files instead.
+walmart/
+olist/
