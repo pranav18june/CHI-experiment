@@ -130,7 +130,7 @@ function Field({ label, children }) {
   return <label className="demographic-field"><span>{label}</span>{children}</label>
 }
 
-export function ParticipantTypeSelect({ onSelect }) {
+export function ParticipantTypeSelect({ onSelect, isAssigning = false, assignmentError = null, onRetry }) {
   const [selected, setSelected] = useState(null)
 
   const options = [
@@ -152,15 +152,31 @@ export function ParticipantTypeSelect({ onSelect }) {
       <section className="check-card">
         <p className="eyebrow">Before we begin</p>
         <h1>What best describes you?</h1>
-        <p className="lede">This helps us personalise the study experience.</p>
+        <p className="lede">Your answer determines which version of the task you receive.</p>
         <ChoiceList options={options} selected={selected} onSelect={setSelected} />
+
+        {assignmentError && (
+          <div
+            role="alert"
+            style={{
+              margin: '4px 0 16px', padding: '12px 14px', borderRadius: 6,
+              border: '1px solid #b45309', background: '#fdf6ec', color: '#7c3f06', fontSize: 13.5,
+            }}
+          >
+            <strong style={{ display: 'block', marginBottom: 4 }}>Could not start your session</strong>
+            {assignmentError}
+          </div>
+        )}
+
         <button
           className="button primary"
           type="button"
-          disabled={!selected}
-          onClick={() => onSelect(selected)}
+          disabled={!selected || isAssigning}
+          onClick={() => (assignmentError && onRetry ? onRetry() : onSelect(selected))}
         >
-          Continue <span>→</span>
+          {isAssigning
+            ? 'Setting up your session…'
+            : assignmentError ? <>Try again <span>↻</span></> : <>Continue <span>→</span></>}
         </button>
       </section>
     </main>
@@ -184,10 +200,13 @@ export function Workshop({ onContinue, items }) {
             </article>
           ))}
         </div>
-        <aside className="tip">
-          <span>✦</span>
-          <p><strong>A note on AI advice</strong> The recommendation is one source of information. Across the study, some recommendations may not be accurate.</p>
-        </aside>
+        {/*
+          §5.7 requires this module to stay neutral: no statement that the AI is
+          often wrong, and no instruction to scrutinise it. A global instruction
+          to scrutinise suppresses reliance in every cell and compresses the
+          C0–C3 contrast the study exists to measure. Deception disclosure
+          belongs in the debrief (§5.11).
+        */}
         <button className="button primary" onClick={onContinue}>
           Continue to practice check <span>→</span>
         </button>
@@ -213,10 +232,7 @@ export function ExpertWalkthrough({ onContinue, items }) {
             </article>
           ))}
         </div>
-        <aside className="tip">
-          <span>✦</span>
-          <p><strong>AI recommendations</strong> Some recommendations in this study are intentionally inaccurate. Apply your professional judgment.</p>
-        </aside>
+        {/* Same neutrality requirement as the novice module (§5.7). */}
         <button className="button primary" onClick={onContinue}>
           Begin practice round <span>→</span>
         </button>
@@ -225,31 +241,7 @@ export function ExpertWalkthrough({ onContinue, items }) {
   )
 }
 
-export function ComprehensionCheck({ onContinue }) {
-  const [selected, setSelected] = useState(null)
-  const isCorrect = selected === 'own'
-
-  const options = [
-    { value: 'own', label: 'I should use the historical information, the AI recommendation, and my own judgment.' },
-    { value: 'formula', label: 'I should look for a formula and calculate the one correct answer.' },
-    { value: 'follow', label: 'I should always use the AI recommendation as my answer.' },
-  ]
-
-  return (
-    <main className="intro-shell">
-      <div className="wordmark"><span className="mark" />Decision Study</div>
-      <section className="check-card">
-        <p className="eyebrow">Quick check</p>
-        <h1>What should guide your decision?</h1>
-        <p className="lede">Choose the statement that best reflects the task.</p>
-        <ChoiceList options={options} selected={selected} onSelect={setSelected} />
-        {selected && !isCorrect && (
-          <p className="inline-message">Not quite. The study asks for your own judgment; the recommendation is not always accurate.</p>
-        )}
-        <button className="button primary" type="button" disabled={!isCorrect} onClick={onContinue}>
-          Start practice round <span>→</span>
-        </button>
-      </section>
-    </main>
-  )
-}
+// NOTE: a one-item inline comprehension check previously lived here. It was
+// unreferenced (CheckPage renders the 4-item Appendix C.1 instrument from
+// components/training/ComprehensionCheck.jsx) and its feedback copy told
+// participants the AI "is not always accurate", which §5.7 forbids. Removed.

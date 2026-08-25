@@ -9,11 +9,25 @@ import React, { useState } from 'react'
  *   3. Asymmetric cost structure (stockout costs > overstock costs)
  *   4. Interface item identifying when/where AI recommendation appears
  *
- * Rules:
- *   - Must score 4/4 to pass.
- *   - Attempt 1 failure: Allow exactly 1 retry with review feedback (Attempt 2 of 2).
- *   - Attempt 2 failure: Pre-registered exclusion (routes to exclusion screen).
+ * Rules (Appendix C.1, §12 item 8):
+ *   - Must score PASS_THRESHOLD of 4 to pass. Protocol default is all-correct.
+ *     One constant drives the gate, the copy, and the telemetry, so the reported
+ *     pass rate always describes the rule that actually ran.
+ *   - Up to MAX_ATTEMPTS attempts, with review feedback between each.
+ *   - Exhausting them is the pre-registered exclusion (routes to the exclusion
+ *     screen). Three attempts rather than two: the gate is there to exclude
+ *     participants who have not grasped the task, not to lose ones who misread a
+ *     single item.
  */
+
+/**
+ * PLACEHOLDER PENDING RESEARCHER SIGN-OFF (§12 item 8):
+ * Passing threshold for the novice comprehension gate. Protocol default is
+ * all-correct (4/4). Overridable via VITE_COMPREHENSION_PASS_THRESHOLD.
+ */
+export const PASS_THRESHOLD = Number(
+  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_COMPREHENSION_PASS_THRESHOLD) || 4
+)
 export const COMPREHENSION_ITEMS = [
   {
     id: 'q1_volatility',
@@ -84,8 +98,11 @@ export const COMPREHENSION_ITEMS = [
       },
     ],
     correctValue: 'stockout_costly',
+    // §5.10: participants are told the asymmetry QUALITATIVELY only. The exact
+    // ratio is never disclosed — it is the critical ratio, and revealing it
+    // makes the newsvendor optimum computable.
     explanation:
-      'Stockouts and lost sales carry an asymmetric penalty (~1.85×) compared to moderate holding costs.',
+      'Running out of stock costs the business more than holding some extra inventory.',
   },
   {
     id: 'q4_interface_sequence',
@@ -113,6 +130,8 @@ export const COMPREHENSION_ITEMS = [
   },
 ]
 
+const MAX_ATTEMPTS = 3 // two retries, then pre-registered exclusion
+
 export default function ComprehensionCheck({ onPass, onFail, onExclude }) {
   const [answers, setAnswers] = useState({})
   const [attempt, setAttempt] = useState(1)
@@ -138,12 +157,15 @@ export default function ComprehensionCheck({ onPass, onFail, onExclude }) {
     setScore(correctCount)
     setHasSubmitted(true)
 
-    if (correctCount >= 3) {
-      // 3/4 or 4/4 Correct -> Passed!
-      onPass({ attempt, score: correctCount, answers })
+    const total = COMPREHENSION_ITEMS.length
+    const results = { attempt, score: correctCount, total, threshold: PASS_THRESHOLD, answers }
+
+    if (correctCount >= PASS_THRESHOLD) {
+      onPass(results)
+    } else if (attempt >= MAX_ATTEMPTS) {
+      onExclude(results)
     } else {
-      // Less than 3/4 -> Allow retry or review
-      onFail({ attempt, score: correctCount, answers })
+      onFail(results)
     }
   }
 
@@ -167,11 +189,16 @@ export default function ComprehensionCheck({ onPass, onFail, onExclude }) {
           Understanding the Task
         </h1>
         <p className="lede" style={{ marginBottom: 28 }}>
-          Please answer all 4 questions below to verify key concepts before proceeding to the practice round.
+          Please answer all {COMPREHENSION_ITEMS.length} questions below to verify key concepts before proceeding to the practice round.
         </p>
 
-        {/* Banner if Attempt 1 was missed */}
-        {hasSubmitted && score < COMPREHENSION_ITEMS.length && attempt === 1 && (
+        {/*
+          Attempt 1 failure. The retry is the ONLY route forward: a
+          "proceed anyway" control previously called onPass() here, which turned
+          the pre-registered gate (§5.7, §9) into a suggestion and let failing
+          novices into the scored block.
+        */}
+        {hasSubmitted && score < PASS_THRESHOLD && attempt === 1 && (
           <div
             style={{
               background: '#fef3c7',
@@ -186,58 +213,11 @@ export default function ComprehensionCheck({ onPass, onFail, onExclude }) {
               Score: {score} / {COMPREHENSION_ITEMS.length} correct
             </strong>
             <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5 }}>
-              Review the questions below. You can try again or proceed to the practice tasks.
+              Review the questions below, then try once more. This is your final attempt.
             </p>
             <div style={{ display: 'flex', gap: 12, marginTop: 14 }}>
               <button
                 className="button primary"
-                type="button"
-                onClick={handleRetry}
-                style={{ minHeight: 40, padding: '0 16px', fontSize: 13 }}
-              >
-                Try Again ↺
-              </button>
-              <button
-                className="button secondary"
-                type="button"
-                onClick={() => onPass({ attempt, score, answers })}
-                style={{ minHeight: 40, padding: '0 16px', fontSize: 13 }}
-              >
-                Proceed to Practice Tasks →
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Banner if Attempt 2+ was missed */}
-        {hasSubmitted && score < COMPREHENSION_ITEMS.length && attempt >= 2 && (
-          <div
-            style={{
-              background: '#eff6ff',
-              border: '1px solid #bfdbfe',
-              borderRadius: 8,
-              padding: '16px 20px',
-              marginBottom: 28,
-              color: '#1e40af',
-            }}
-          >
-            <strong style={{ display: 'block', marginBottom: 4, fontSize: 15 }}>
-              Score: {score} / {COMPREHENSION_ITEMS.length}
-            </strong>
-            <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5 }}>
-              Review the questions below. You can proceed directly to the practice tasks now.
-            </p>
-            <div style={{ display: 'flex', gap: 12, marginTop: 14 }}>
-              <button
-                className="button primary"
-                type="button"
-                onClick={() => onPass({ attempt, score, answers })}
-                style={{ minHeight: 40, padding: '0 16px', fontSize: 13 }}
-              >
-                Proceed to Practice Tasks →
-              </button>
-              <button
-                className="button secondary"
                 type="button"
                 onClick={handleRetry}
                 style={{ minHeight: 40, padding: '0 16px', fontSize: 13 }}
@@ -247,6 +227,12 @@ export default function ComprehensionCheck({ onPass, onFail, onExclude }) {
             </div>
           </div>
         )}
+
+        {/*
+          Attempt 2 failure routes to the pre-registered exclusion via
+          onExclude() in handleSubmit, so this component never renders a
+          post-failure "continue" path.
+        */}
 
         {/* ── Question Items ── */}
         <div style={{ display: 'grid', gap: 28 }}>
@@ -295,7 +281,7 @@ export default function ComprehensionCheck({ onPass, onFail, onExclude }) {
                         type="button"
                         className={isSelected ? 'choice selected' : 'choice'}
                         onClick={() => handleSelect(item.id, opt.value)}
-                        disabled={hasSubmitted && score >= 3}
+                        disabled={hasSubmitted && score >= PASS_THRESHOLD}
                         style={{ padding: '12px 14px', fontSize: 13.5 }}
                       >
                         <span style={{ width: 22, height: 22, fontSize: 10 }}>
@@ -312,7 +298,7 @@ export default function ComprehensionCheck({ onPass, onFail, onExclude }) {
         </div>
 
         {/* Submit Action */}
-        {(!hasSubmitted || attempt === 2) && (
+        {(!hasSubmitted || score < PASS_THRESHOLD) && (
           <div style={{ marginTop: 32 }}>
             <button
               className="button primary full"

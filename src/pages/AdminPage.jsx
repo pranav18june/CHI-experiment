@@ -444,6 +444,45 @@ export default function AdminPage() {
           </section>
         )}
 
+        {/*
+          Data quality, surfaced live. These are the signals that decide whether a
+          run is analysable, and they are only useful while the run is still going:
+          a rising flagged count means the client and server disagree about the
+          assignment, and unassigned participants mean the assignment path failed.
+        */}
+        {stats && (
+          <section className="adm-kpi-row">
+            <KpiCard
+              label="Integrity flags"
+              value={stats.flaggedParticipants ?? 0}
+              sub={
+                (stats.flaggedParticipants ?? 0) === 0
+                  ? 'No client/server disagreement'
+                  : 'Participants with flagged trials — inspect before analysis'
+              }
+            />
+            <KpiCard
+              label="Below time floor"
+              value={stats.fastTrialTotal ?? 0}
+              sub="Trials faster than the pre-registered floor (§9)"
+            />
+            <KpiCard
+              label="Unassigned"
+              value={stats.conditions?.unassigned ?? 0}
+              sub={
+                (stats.conditions?.unassigned ?? 0) === 0
+                  ? 'Every participant holds a server assignment'
+                  : 'Assignment did not complete — investigate'
+              }
+            />
+            <KpiCard
+              label="Presentation orders"
+              value={`${Object.keys(stats.orders || {}).length}/12`}
+              sub="Distinct counterbalanced orders in use (§5.11)"
+            />
+          </section>
+        )}
+
         {/* ── 2×4 Factorial Design Matrix ── */}
         {stats && (
           <section className="adm-matrix-section">

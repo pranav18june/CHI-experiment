@@ -1,6 +1,8 @@
 import React from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 
+import GuardedRoute        from './GuardedRoute.jsx'
+import { ROUTE_ALLOWED_PHASES } from '../context/StudyContext.jsx'
 import ConsentPage         from '../pages/ConsentPage.jsx'
 import ParticipantTypePage  from '../pages/ParticipantTypePage.jsx'
 import TrainingPage         from '../pages/TrainingPage.jsx'
@@ -31,20 +33,31 @@ import AdminPage            from '../pages/AdminPage.jsx'
  *   /excluded    → Pre-registered Exclusion Screen
  *   /admin       → Real-time Monitoring Dashboard
  */
+/** Applies the phase allow-list declared for a route path. */
+function Guard({ path, children }) {
+  return <GuardedRoute allowedPhases={ROUTE_ALLOWED_PHASES[path]}>{children}</GuardedRoute>
+}
+
 export function StudyRouter() {
   return (
     <Routes>
-      <Route path="/" element={<ConsentPage />} />
-      <Route path="/type" element={<ParticipantTypePage />} />
-      <Route path="/training" element={<TrainingPage />} />
-      <Route path="/walkthrough" element={<WalkthroughPage />} />
-      <Route path="/check" element={<CheckPage />} />
-      <Route path="/practice" element={<PracticePage />} />
-      <Route path="/scored" element={<ScoredPage />} />
-      <Route path="/post-task" element={<PostTaskPage />} />
-      <Route path="/debrief" element={<DebriefPage />} />
-      <Route path="/complete" element={<CompletePage />} />
-      <Route path="/excluded" element={<ExcludedPage />} />
+      {/*
+        Every study route is phase-guarded (§5.11 ordering). Without this a
+        participant can type /scored, skip consent and training, or use the back
+        button to re-enter a completed phase — and an excluded participant can
+        reach the scored block. /admin is outside the participant flow.
+      */}
+      <Route path="/"            element={<Guard path="/"><ConsentPage /></Guard>} />
+      <Route path="/type"        element={<Guard path="/type"><ParticipantTypePage /></Guard>} />
+      <Route path="/training"    element={<Guard path="/training"><TrainingPage /></Guard>} />
+      <Route path="/walkthrough" element={<Guard path="/walkthrough"><WalkthroughPage /></Guard>} />
+      <Route path="/check"       element={<Guard path="/check"><CheckPage /></Guard>} />
+      <Route path="/practice"    element={<Guard path="/practice"><PracticePage /></Guard>} />
+      <Route path="/scored"      element={<Guard path="/scored"><ScoredPage /></Guard>} />
+      <Route path="/post-task"   element={<Guard path="/post-task"><PostTaskPage /></Guard>} />
+      <Route path="/debrief"     element={<Guard path="/debrief"><DebriefPage /></Guard>} />
+      <Route path="/complete"    element={<Guard path="/complete"><CompletePage /></Guard>} />
+      <Route path="/excluded"    element={<Guard path="/excluded"><ExcludedPage /></Guard>} />
       <Route path="/admin" element={<AdminPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

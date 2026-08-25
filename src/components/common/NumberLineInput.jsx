@@ -1,59 +1,9 @@
 import React, { useId, useMemo, useState, useEffect } from 'react'
 import { formatCurrency } from '../../utils/formatters.js'
 import { normalizeNumericInput } from '../../services/validationService.js'
+import { getScenarioScaleBounds } from '../../utils/numberLine.js'
 
-/**
- * Calculates dynamic per-scenario number-line bounds (min, max, step, anchor).
- *
- * Ensures:
- *   - Scale is wide enough to contain both the ground-truth optimum and the AI recommendation.
- *   - Anchored to the product's historical demand / benchmark.
- *   - Uses clean, intuitive round numbers for bounds and step intervals.
- */
-export function getScenarioScaleBounds(scenario) {
-  if (!scenario) {
-    return { min: 0, max: 100000, step: 100, anchor: null }
-  }
-
-  const recObj = typeof scenario.recommendation === 'object' ? scenario.recommendation : {}
-  const optimal = Number(scenario.groundTruthOptimal ?? recObj.correct ?? recObj.optimal ?? 1000)
-  const aiVal = Number(recObj.incorrect ?? recObj.active ?? optimal)
-
-  const valMin = Math.min(optimal, aiVal)
-  const valMax = Math.max(optimal, aiVal)
-  const span = valMax - valMin
-  const center = (valMin + valMax) / 2
-
-  // Determine appropriate step increment
-  let step = 100
-  if (valMax > 150000)      step = 500
-  else if (valMax > 40000)  step = 250
-  else if (valMax > 5000)   step = 50
-  else if (valMax > 500)    step = 5
-  else                      step = 1
-
-  // Compute symmetric margin around values
-  const margin = Math.max(span * 0.7, center * 0.35, step * 10)
-
-  let min = Math.max(0, Math.floor((valMin - margin) / (step * 5)) * (step * 5))
-  let max = Math.ceil((valMax + margin) / (step * 5)) * (step * 5)
-
-  // Ensure minimum range span
-  if (max - min < step * 20) {
-    max = min + step * 20
-  }
-
-  // Parse historical statistic anchor if available
-  let anchor = null
-  if (scenario.historicalStatistic?.value) {
-    const parsed = Number(String(scenario.historicalStatistic.value).replace(/[^0-9.]/g, ''))
-    if (Number.isFinite(parsed) && parsed >= min && parsed <= max) {
-      anchor = parsed
-    }
-  }
-
-  return { min, max, step, anchor }
-}
+export { getScenarioScaleBounds }
 
 /**
  * NumberLineInput — Interactive Protocol §5.9 Number-Line & Slider Input

@@ -36,46 +36,54 @@ export const newsvendorScenarios = [
     decisionLabel: DECISION_LABEL,
     decisionPrompt: DECISION_PROMPT,
 
+    // §5.9 response scale — anchored to this product's historical demand,
+    // never to the optimum or the AI value (see getScenarioScaleBounds).
+    // Width is pilot-settable (§12 item 6).
+    numberLine: { min: 0, max: 800000, step: 2500, anchor: 263500 },
+
     historicalStatistic: {
       label: 'Average demand in past peak weeks',
       value: '$263,500',
     },
 
+    // Chart asset bound to the instance id, not to the scenario's position in
+    // the array: presentation order is counterbalanced per participant (§5.11),
+    // so an index-based lookup would show the wrong chart.
+    chartImage: '/graphs/4.png',
+
     chart: {
       label: 'Historical peak-week sales',
       hint: '10 verified historical holiday-week observations will appear here.',
-      data: {
-        historicalSeries: 'TODO_CHART_DATA_NV1',
-        movingAverage:    'TODO_CHART_DATA_NV1',
-        distribution:     'TODO_CHART_DATA_NV1',
-        driverOverlay:    'TODO_CHART_DATA_NV1',
-      },
     },
 
     drivers: [
       { name: 'Holiday-week indicator', weight: '+0.44' },
       { name: 'Temperature',            weight: '−0.40' },
-      { name: 'Fuel price',             weight: '−0.19' },
     ],
 
     recommendation: {
       correct:   346257,  // cost-optimal ground truth
-      incorrect: 242380,  // underestimates holiday peak (-30%)
+      incorrect: 242380,  // biased AI suggestion (assumed peak demand ≈ $159,600, −30%)
       active:    242380,
       optimal:   346257,
     },
 
+    // Incorrect-version stimulus texts (Appendix A, verbatim).
+    // C3 states ONLY the AI's own assumed input as a boundary (§5.3).
     explanations: {
       c0: null,
-      c1: 'TODO_C1_EXPLANATION_NV1',
+      c1: {
+        factors: [
+          { label: 'Holiday-week indicator', value: '+0.44' },
+          { label: 'Temperature', value: '−0.40' },
+        ],
+      },
       c2:
-        'While this category does see a holiday increase, the AI treats the upcoming peak as more ' +
-        'modest than the historical pattern suggests, recommending a comparatively conservative ' +
-        'order of $242,380 for the peak week.',
+        'This category sees only a modest, well-contained holiday lift above its usual level. ' +
+        'The AI recommends a measured order of $242,380 for the upcoming peak week.',
       c3:
-        'This recommendation assumes expected peak-week demand of about $159,600. The historical ' +
-        'pattern for this category instead shows an average peak-week demand closer to $263,500 — ' +
-        'substantially higher. If the upcoming peak matches that historical pattern, a larger order would be needed.',
+        'This order is set for expected peak-week demand of about $159,600. The AI would recommend ' +
+        'a larger order if the upcoming peak were expected to run higher than that.',
     },
 
     correctExplanations: {
@@ -92,10 +100,17 @@ export const newsvendorScenarios = [
         'This order is set for expected peak-week demand of about $263,500. The AI would recommend a smaller order only if the upcoming peak were expected to fall well below that level.',
     },
 
+    // Q* = mu + z x sigma, critical ratio 0.65, z = 0.385 (Appendix B.3).
     metadata: {
-      peakWeekDemandMean: 263500,
-      criticalRatio:      'TODO_METADATA',
+      derivation:         'walmart-holiday-week-subset',
+      reproducible:       true,
+      peakWeekDemandMean: 263476,
+      peakWeekDemandStd:  215016,
+      criticalRatio:      0.65,
+      zScore:             0.385,
       holidayWeeks:       10,
+      perturbedParameter: 'peakWeekDemandMean',
+      perturbedValue:     159600,
     },
     futureExpansion: {},
   },
@@ -115,46 +130,54 @@ export const newsvendorScenarios = [
     decisionLabel: DECISION_LABEL,
     decisionPrompt: DECISION_PROMPT,
 
+    // §5.9 response scale — anchored to this product's historical demand,
+    // never to the optimum or the AI value (see getScenarioScaleBounds).
+    // Width is pilot-settable (§12 item 6).
+    numberLine: { min: 0, max: 350000, step: 1000, anchor: 165700 },
+
     historicalStatistic: {
       label: 'Average demand in past peak weeks',
       value: '$165,700',
     },
 
+    // Chart asset bound to the instance id, not to the scenario's position in
+    // the array: presentation order is counterbalanced per participant (§5.11),
+    // so an index-based lookup would show the wrong chart.
+    chartImage: '/graphs/5.png',
+
     chart: {
       label: 'Historical peak-week sales',
       hint: 'Verified historical holiday-week sales will appear here.',
-      data: {
-        historicalSeries: 'TODO_CHART_DATA_NV2',
-        movingAverage:    'TODO_CHART_DATA_NV2',
-        distribution:     'TODO_CHART_DATA_NV2',
-        driverOverlay:    'TODO_CHART_DATA_NV2',
-      },
     },
 
     drivers: [
-      { name: 'Holiday-week indicator',       weight: '+0.37' },
-      { name: 'Temperature',                  weight: '−0.44' },
-      { name: 'Promotional markdown present', weight: '+0.13' },
+      { name: 'Holiday-week indicator', weight: '+0.37' },
+      { name: 'Temperature',            weight: '−0.44' },
     ],
 
     recommendation: {
       correct:   210921,  // cost-optimal ground truth
-      incorrect: 274197,  // overestimates peak (+30%)
+      incorrect: 274197,  // biased AI suggestion (assumed peak demand ≈ $229,000, +30%)
       active:    274197,
       optimal:   210921,
     },
 
+    // Incorrect-version stimulus texts (Appendix A, verbatim). See NV-1.
     explanations: {
       c0: null,
-      c1: 'TODO_C1_EXPLANATION_NV2',
+      c1: {
+        factors: [
+          { label: 'Holiday-week indicator', value: '+0.37' },
+          { label: 'Temperature', value: '−0.44' },
+        ],
+      },
       c2:
-        "Recent signals suggest this category's upcoming peak may run well above its historical " +
-        'holiday pattern, possibly due to an active promotional markdown compounding the seasonal effect. ' +
-        'The AI recommends a larger order of $274,197 to cover this anticipated stronger peak.',
+        "This category's upcoming peak is shaping up to run well above its usual holiday level, " +
+        'with a promotional push compounding the seasonal surge. The AI recommends a large order ' +
+        'of $274,197 to cover it.',
       c3:
-        'This recommendation assumes expected peak-week demand of about $229,000. The historical ' +
-        'pattern for this category instead shows an average peak-week demand closer to $165,700 — ' +
-        'notably lower. If the upcoming peak matches that historical pattern, a smaller order would be sufficient.',
+        'This order is set for expected peak-week demand of about $229,000. The AI would recommend ' +
+        'a smaller order if the upcoming peak were expected to run closer to its usual level.',
     },
 
     correctExplanations: {
@@ -172,9 +195,15 @@ export const newsvendorScenarios = [
     },
 
     metadata: {
-      peakWeekDemandMean: 165700,
-      criticalRatio:      'TODO_METADATA',
-      holidayWeeks:       'TODO_DATASET',
+      derivation:         'walmart-holiday-week-subset',
+      reproducible:       true,
+      peakWeekDemandMean: 165676,
+      peakWeekDemandStd:  117520,
+      criticalRatio:      0.65,
+      zScore:             0.385,
+      holidayWeeks:       10,
+      perturbedParameter: 'peakWeekDemandMean',
+      perturbedValue:     229000,
     },
     futureExpansion: {},
   },
@@ -194,45 +223,53 @@ export const newsvendorScenarios = [
     decisionLabel: DECISION_LABEL,
     decisionPrompt: DECISION_PROMPT,
 
+    // §5.9 response scale — anchored to this product's historical demand,
+    // never to the optimum or the AI value (see getScenarioScaleBounds).
+    // Width is pilot-settable (§12 item 6).
+    numberLine: { min: 0, max: 600000, step: 2500, anchor: 163900 },
+
     historicalStatistic: {
       label: 'Average demand in past peak weeks',
       value: '$163,900',
     },
 
+    // Chart asset bound to the instance id, not to the scenario's position in
+    // the array: presentation order is counterbalanced per participant (§5.11),
+    // so an index-based lookup would show the wrong chart.
+    chartImage: '/graphs/6.png',
+
     chart: {
       label: 'Historical peak-week sales',
       hint: 'Verified historical holiday-week sales will appear here.',
-      data: {
-        historicalSeries: 'TODO_CHART_DATA_NV3',
-        movingAverage:    'TODO_CHART_DATA_NV3',
-        distribution:     'TODO_CHART_DATA_NV3',
-        driverOverlay:    'TODO_CHART_DATA_NV3',
-      },
     },
 
     drivers: [
       { name: 'Holiday-week indicator', weight: '+0.37' },
       { name: 'Temperature',            weight: '−0.38' },
-      { name: 'Fuel price',             weight: '−0.19' },
     ],
 
     recommendation: {
       correct:   218222,  // cost-optimal ground truth
-      incorrect: 141844,  // underestimates peak (-35%)
+      incorrect: 141844,  // biased AI suggestion (assumed peak demand ≈ $87,500, −35%)
       active:    141844,
       optimal:   218222,
     },
 
+    // Incorrect-version stimulus texts (Appendix A, verbatim). See NV-1.
     explanations: {
       c0: null,
-      c1: 'TODO_C1_EXPLANATION_NV3',
+      c1: {
+        factors: [
+          { label: 'Holiday-week indicator', value: '+0.37' },
+          { label: 'Temperature', value: '−0.38' },
+        ],
+      },
       c2:
-        "The AI treats this category's upcoming peak as considerably smaller and more predictable " +
-        'than its historical pattern, recommending a conservative order of only $141,844 for the peak week.',
+        "This category's upcoming peak looks small and predictable, close to an ordinary week. " +
+        'The AI recommends a lean order of $141,844 for the peak week.',
       c3:
-        'This recommendation assumes expected peak-week demand of about $87,500. The historical ' +
-        'pattern for this category instead shows an average peak-week demand closer to $163,900 — ' +
-        'substantially higher. If the upcoming peak matches that historical pattern, a larger order would be needed.',
+        'This order is set for expected peak-week demand of about $87,500. The AI would recommend ' +
+        'a larger order if the upcoming peak were expected to run higher than that.',
     },
 
     correctExplanations: {
@@ -250,9 +287,15 @@ export const newsvendorScenarios = [
     },
 
     metadata: {
-      peakWeekDemandMean: 163900,
-      criticalRatio:      'TODO_METADATA',
-      holidayWeeks:       'TODO_DATASET',
+      derivation:         'walmart-holiday-week-subset',
+      reproducible:       true,
+      peakWeekDemandMean: 163875,
+      peakWeekDemandStd:  141160,
+      criticalRatio:      0.65,
+      zScore:             0.385,
+      holidayWeeks:       10,
+      perturbedParameter: 'peakWeekDemandMean',
+      perturbedValue:     87500,
     },
     futureExpansion: {},
   },

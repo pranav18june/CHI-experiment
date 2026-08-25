@@ -36,69 +36,94 @@ export const reorderPointScenarios = [
     decisionLabel: DECISION_LABEL,
     decisionPrompt: DECISION_PROMPT,
 
+    // §5.9 response scale — anchored to this product's historical demand,
+    // never to the optimum or the AI value (see getScenarioScaleBounds).
+    // Width is pilot-settable (§12 item 6).
+    numberLine: { min: 0, max: 24000, step: 100, anchor: 3256 },
+
+    // §5.3 / §12 item 20: the surfaced statistic IS the parameter the incorrect
+    // version perturbs, so the C3 boundary can actually be verified against the
+    // information on screen.
     historicalStatistic: {
-      label: 'Average daily demand',
-      value: '~$296',
+      label: 'Supplier lead-time variability',
+      value: '±2.1 days',
     },
+
+    // Chart asset bound to the instance id, not to the scenario's position in
+    // the array: presentation order is counterbalanced per participant (§5.11),
+    // so an index-based lookup would show the wrong chart.
+    chartImage: '/graphs/7.png',
 
     chart: {
       label: 'Historical demand and lead-time data',
       hint: 'Daily demand observations and supplier lead-time distribution will appear here.',
-      data: {
-        historicalSeries:     'TODO_CHART_DATA_ROP1',
-        leadTimeDistribution: 'TODO_CHART_DATA_ROP1',
-        demandDistribution:   'TODO_CHART_DATA_ROP1',
-        deliveryHistory:      'TODO_CHART_DATA_ROP1',
-      },
     },
 
     drivers: [
       { name: 'Lead-time variability coefficient', weight: '+0.18' },
-      { name: 'Demand variability coefficient',    weight: '+0.12' },
-      { name: 'Seasonal demand indicator',         weight: '+0.09' },
       { name: 'Supplier reliability score',        weight: '−0.14' },
     ],
 
     recommendation: {
       correct:   7507,   // cost-optimal ground truth
-      incorrect: 9909,   // AI overestimates lead-time variability (+32%)
+      incorrect: 9909,   // biased AI suggestion (assumed lead-time variability ≈ 4.2 days, +32%)
       active:    9909,
       optimal:   7507,
     },
 
+    // Incorrect-version stimulus texts. Authored to the Appendix A pattern:
+    // C3 states ONLY the AI's own assumed input as a boundary — never the true
+    // value and never a corrected optimum (§5.3); C2 shares the confident
+    // register of its correct counterpart.
     explanations: {
       c0: null,
-      c1: 'TODO_C1_EXPLANATION_ROP1',
+      c1: {
+        factors: [
+          { label: 'Lead-time variability coefficient', value: '+0.18' },
+          { label: 'Supplier reliability score', value: '−0.14' },
+        ],
+      },
       c2:
-        'This pet supply category shows consistent, predictable ordering patterns with the lowest ' +
-        'lead-time variability of the three reorder point scenarios. The AI recommends a reorder ' +
-        'point of $9,909, which appears to overestimate the combined demand and variability for ' +
-        'this category. Based on the historical ordering pattern and relatively stable lead times, ' +
-        'a reorder point of around $7,500 may be more appropriate.',
+        'Deliveries for this category arrive on an uneven schedule, with replenishment lead times ' +
+        'swinging widely from one order to the next. The AI recommends a reorder point of $9,909 ' +
+        'to keep the shelf covered across those longer waits.',
       c3:
-        'This recommendation assumes lead-time variability of approximately 4.2 days. The historical ' +
-        'data for this supplier instead shows variability closer to 2.1 days — about half as much. ' +
-        'If variability matches the historical level, a lower reorder point of approximately $7,507 would be sufficient.',
+        'This reorder point is set for supplier lead times that vary by about 4.2 days. The AI would ' +
+        'recommend a lower reorder point if this supplier delivered more consistently than that.',
     },
 
     correctExplanations: {
       c0: null,
-      c1: 'Low lead-time variability driver weights (2.1 day standard deviation).',
+      c1: {
+        factors: [
+          { label: 'Lead-time variability coefficient', value: '+0.18' },
+          { label: 'Supplier reliability score', value: '−0.14' },
+        ],
+      },
       c2:
-        'With low supplier lead-time variability (averaging 11 days with 2.1-day standard deviation) and steady daily demand ' +
-        'of $296, setting a reorder point of $7,507 cost-effectively prevents stockouts without accumulating excess inventory.',
+        'This category is replenished on a dependable schedule, with lead times holding close to ' +
+        'their usual length and steady day-to-day demand. The AI recommends a reorder point of ' +
+        '$7,507 to trigger replenishment in good time without carrying idle stock.',
       c3:
-        'This recommendation assumes historical lead-time variability of 2.1 days. ' +
-        'If lead-time variability doubled to 4.2 days, an ROP of $9,909 would be needed, ' +
-        'but historical reliability confirms $7,507 is optimal.',
+        'This reorder point is set for supplier lead times that vary by about 2.1 days. The AI would ' +
+        'recommend a higher reorder point only if this supplier delivered markedly less consistently than that.',
     },
 
+    // CONSTRUCTED instance: not derived from a real dataset. §5.5 lists
+    // Reorder-Point as blocked pending a lead-time dataset, so these parameters
+    // describe the stimulus rather than reproduce the optimum from a pipeline.
+    // `reproducible: false` keeps the §7 sensitivity analysis honest about which
+    // rows it can recompute. See PROTOCOL_GAPS_REMAINING.md item B-1.
     metadata: {
+      derivation:              'constructed',
+      reproducible:            false,
       demandMeanPerDay:        296,
       averageLeadTimeDays:     11,
       leadTimeDemandBase:      3256,
+      leadTimeVariabilityDays: 2.1,
       variabilityLevel:        'low',
-      supplierReliabilityScore: 'TODO_METADATA',
+      perturbedParameter:      'leadTimeVariabilityDays',
+      perturbedValue:          4.2,
     },
     futureExpansion: {},
   },
@@ -118,70 +143,88 @@ export const reorderPointScenarios = [
     decisionLabel: DECISION_LABEL,
     decisionPrompt: DECISION_PROMPT,
 
+    // §5.9 response scale — anchored to this product's historical demand,
+    // never to the optimum or the AI value (see getScenarioScaleBounds).
+    // Width is pilot-settable (§12 item 6).
+    numberLine: { min: 0, max: 60000, step: 250, anchor: 18629 },
+
     historicalStatistic: {
       label: 'Average daily demand',
       value: '~$1,433',
     },
 
+    // Chart asset bound to the instance id, not to the scenario's position in
+    // the array: presentation order is counterbalanced per participant (§5.11),
+    // so an index-based lookup would show the wrong chart.
+    chartImage: '/graphs/8.png',
+
     chart: {
       label: 'Historical demand and lead-time data',
       hint: 'Daily demand observations and supplier lead-time distribution will appear here.',
-      data: {
-        historicalSeries:     'TODO_CHART_DATA_ROP2',
-        leadTimeDistribution: 'TODO_CHART_DATA_ROP2',
-        demandDistribution:   'TODO_CHART_DATA_ROP2',
-        deliveryHistory:      'TODO_CHART_DATA_ROP2',
-      },
     },
 
     drivers: [
-      { name: 'Demand variability coefficient',    weight: '+0.31' },
-      { name: 'Lead-time variability coefficient', weight: '+0.27' },
-      { name: 'Interstate shipping distance',      weight: '+0.19' },
-      { name: 'Supplier reliability score',        weight: '−0.22' },
+      { name: 'Demand variability coefficient', weight: '+0.31' },
+      { name: 'Supplier reliability score',     weight: '−0.22' },
     ],
 
     recommendation: {
       correct:   41112,  // cost-optimal ground truth
-      incorrect: 29601,  // AI underestimates average daily demand (-28%)
+      incorrect: 29601,  // biased AI suggestion (assumed daily demand ≈ $1,100, −28%)
       active:    29601,
       optimal:   41112,
     },
 
+    // Incorrect-version stimulus texts. See ROP-1.
     explanations: {
       c0: null,
-      c1: 'TODO_C1_EXPLANATION_ROP2',
+      c1: {
+        factors: [
+          { label: 'Demand variability coefficient', value: '+0.31' },
+          { label: 'Supplier reliability score', value: '−0.22' },
+        ],
+      },
       c2:
-        'This home goods category shows moderate demand variability with lead times ranging ' +
-        'from approximately 10 to 16 days. The AI recommends a reorder point of $29,601, ' +
-        'which may underestimate the combined demand and lead-time variability for this supplier. ' +
-        'Based on the historical demand of around $1,433 per day, a higher reorder point of ' +
-        'approximately $41,000 would better protect against stockout risk.',
+        'This category moves at a measured pace, drawing down a modest amount of stock on a typical ' +
+        'day while the supplier restocks on its usual schedule. The AI recommends a reorder point of ' +
+        '$29,601 to cover the wait for the next delivery.',
       c3:
-        'This recommendation assumes average daily demand of approximately $1,100. The historical ' +
-        'data for this category instead shows average daily demand closer to $1,433 — about 30% ' +
-        'higher. If demand holds at that historical level, a higher reorder point of approximately ' +
-        '$41,112 would be needed.',
+        'This reorder point is set for average daily demand of about $1,100. The AI would recommend ' +
+        'a higher reorder point if this category sold faster than that on a typical day.',
     },
 
     correctExplanations: {
       c0: null,
-      c1: 'Moderate daily demand driver weights ($1,433/day over 13-day lead time).',
+      c1: {
+        factors: [
+          { label: 'Demand variability coefficient', value: '+0.31' },
+          { label: 'Supplier reliability score', value: '−0.22' },
+        ],
+      },
       c2:
-        'With average daily demand of $1,433 and lead times averaging 13 days (base lead-time demand $18,629), ' +
-        'a reorder point of $41,112 accounts for delivery variability and safeguards high-velocity sales.',
+        'This category sells steadily and in volume, drawing down a substantial amount of stock ' +
+        'every day the supplier is in transit. The AI recommends a reorder point of $41,112 to ' +
+        'cover demand across the full replenishment wait.',
       c3:
-        'This recommendation is based on true daily demand of $1,433. ' +
-        'If daily demand were only $1,100, an ROP of $29,601 would suffice, ' +
-        'but $1,433/day demand requires $41,112.',
+        'This reorder point is set for average daily demand of about $1,433. The AI would recommend ' +
+        'a lower reorder point only if this category sold considerably more slowly than that on a typical day.',
     },
 
+    // CONSTRUCTED instance: not derived from a real dataset. §5.5 lists
+    // Reorder-Point as blocked pending a lead-time dataset, so these parameters
+    // describe the stimulus rather than reproduce the optimum from a pipeline.
+    // `reproducible: false` keeps the §7 sensitivity analysis honest about which
+    // rows it can recompute. See PROTOCOL_GAPS_REMAINING.md item B-1.
     metadata: {
+      derivation:              'constructed',
+      reproducible:            false,
       demandMeanPerDay:        1433,
       averageLeadTimeDays:     13,
       leadTimeDemandBase:      18629,
+      leadTimeVariabilityDays: 3.0,
       variabilityLevel:        'moderate',
-      supplierReliabilityScore: 'TODO_METADATA',
+      perturbedParameter:      'demandMeanPerDay',
+      perturbedValue:          1100,
     },
     futureExpansion: {},
   },
@@ -201,69 +244,89 @@ export const reorderPointScenarios = [
     decisionLabel: DECISION_LABEL,
     decisionPrompt: DECISION_PROMPT,
 
+    // §5.9 response scale — anchored to this product's historical demand,
+    // never to the optimum or the AI value (see getScenarioScaleBounds).
+    // Width is pilot-settable (§12 item 6).
+    numberLine: { min: 0, max: 50000, step: 250, anchor: 7896 },
+
     historicalStatistic: {
-      label: 'Average lead time',
-      value: '~21 days',
+      label: 'Supplier lead-time variability',
+      value: '±5.8 days',
     },
+
+    // Chart asset bound to the instance id, not to the scenario's position in
+    // the array: presentation order is counterbalanced per participant (§5.11),
+    // so an index-based lookup would show the wrong chart.
+    chartImage: '/graphs/9.png',
 
     chart: {
       label: 'Historical demand and lead-time data',
       hint: 'Daily demand observations and supplier lead-time distribution will appear here.',
-      data: {
-        historicalSeries:     'TODO_CHART_DATA_ROP3',
-        leadTimeDistribution: 'TODO_CHART_DATA_ROP3',
-        demandDistribution:   'TODO_CHART_DATA_ROP3',
-        deliveryHistory:      'TODO_CHART_DATA_ROP3',
-      },
     },
 
     drivers: [
       { name: 'Lead-time variability coefficient', weight: '+0.44' },
-      { name: 'Demand variability coefficient',    weight: '+0.29' },
-      { name: 'Interstate shipping distance',      weight: '+0.21' },
       { name: 'Supplier reliability score',        weight: '−0.18' },
     ],
 
     recommendation: {
       correct:   16569,  // cost-optimal ground truth
-      incorrect: 22368,  // AI overestimates lead-time variability (+35%)
+      incorrect: 22368,  // biased AI suggestion (assumed lead-time variability ≈ 9.1 days, +35%)
       active:    22368,
       optimal:   16569,
     },
 
+    // Incorrect-version stimulus texts. See ROP-1.
     explanations: {
       c0: null,
-      c1: 'TODO_C1_EXPLANATION_ROP3',
+      c1: {
+        factors: [
+          { label: 'Lead-time variability coefficient', value: '+0.44' },
+          { label: 'Supplier reliability score', value: '−0.18' },
+        ],
+      },
       c2:
-        'This office furniture category has the longest supplier lead times and highest ' +
-        'lead-time variability of the three reorder point scenarios. While the AI recommends ' +
-        'a reorder point of $22,368, the historical variability pattern suggests a lower reorder ' +
-        'point of around $16,500 may be more cost-effective without significantly increasing stockout risk.',
+        'Deliveries in this category already take a long time to arrive, and the arrival dates ' +
+        'scatter widely around that long average. The AI recommends a reorder point of $22,368 ' +
+        'to stay covered through the most delayed shipments.',
       c3:
-        'This recommendation assumes lead-time variability of approximately 9.1 days. The historical ' +
-        'data for this supplier instead shows variability closer to 5.8 days — about 36% lower. ' +
-        'If variability matches that historical level, a lower reorder point of approximately ' +
-        '$16,569 would be appropriate.',
+        'This reorder point is set for supplier lead times that vary by about 9.1 days. The AI would ' +
+        'recommend a lower reorder point if this supplier hit its delivery dates more tightly than that.',
     },
 
     correctExplanations: {
       c0: null,
-      c1: 'Long lead-time baseline driver weights (21 days, 5.8 day variability).',
+      c1: {
+        factors: [
+          { label: 'Lead-time variability coefficient', value: '+0.44' },
+          { label: 'Supplier reliability score', value: '−0.18' },
+        ],
+      },
       c2:
-        'Accounting for an average lead time of 21 days with 5.8-day variability and $376/day demand, ' +
-        'setting a reorder point of $16,569 protects against supply chain delays without ballooning holding costs.',
+        'Deliveries in this category take a long time to arrive, but they land close to their ' +
+        'expected date. The AI recommends a reorder point of $16,569 to cover that long but ' +
+        'predictable replenishment wait.',
       c3:
-        'This recommendation reflects true lead-time variability of 5.8 days. ' +
-        'If variability reached 9.1 days, an ROP of $22,368 would be needed, ' +
-        'but historical data demonstrates $16,569 is optimal.',
+        'This reorder point is set for supplier lead times that vary by about 5.8 days. The AI would ' +
+        'recommend a higher reorder point only if this supplier missed its delivery dates by ' +
+        'substantially more than that.',
     },
 
+    // CONSTRUCTED instance: not derived from a real dataset. §5.5 lists
+    // Reorder-Point as blocked pending a lead-time dataset, so these parameters
+    // describe the stimulus rather than reproduce the optimum from a pipeline.
+    // `reproducible: false` keeps the §7 sensitivity analysis honest about which
+    // rows it can recompute. See PROTOCOL_GAPS_REMAINING.md item B-1.
     metadata: {
+      derivation:              'constructed',
+      reproducible:            false,
       demandMeanPerDay:        376,
       averageLeadTimeDays:     21,
       leadTimeDemandBase:      7896,
+      leadTimeVariabilityDays: 5.8,
       variabilityLevel:        'high',
-      supplierReliabilityScore: 'TODO_METADATA',
+      perturbedParameter:      'leadTimeVariabilityDays',
+      perturbedValue:          9.1,
     },
     futureExpansion: {},
   },

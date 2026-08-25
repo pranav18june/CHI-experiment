@@ -82,9 +82,10 @@ async function runRobustnessTest() {
 
   for (let i = 1; i <= 8; i++) {
     const pid = `P-NOV-${String(i).padStart(2, '0')}`
+    // Participant ids are server-issued (client ids are only linked, never trusted).
     const { req, res } = createMockReqRes({
       method: 'POST',
-      body: { participantId: pid, participantType: 'novice' },
+      body: { priorParticipantId: pid, participantType: 'novice' },
     })
     await assignModeHandler(req, res)
     const out = res._getData().responseData
@@ -95,7 +96,7 @@ async function runRobustnessTest() {
     const pid = `P-EXP-${String(i).padStart(2, '0')}`
     const { req, res } = createMockReqRes({
       method: 'POST',
-      body: { participantId: pid, participantType: 'expert' },
+      body: { priorParticipantId: pid, participantType: 'expert' },
     })
     await assignModeHandler(req, res)
     const out = res._getData().responseData
@@ -116,7 +117,8 @@ async function runRobustnessTest() {
   })
 
   // Verify stimulus snapshots and hashes
-  const samplePlan = await ParticipantTrialPlan.findOne({ participantId: 'P-NOV-01' }).lean()
+  const NOV1 = novices[0].participantId // server-issued id for the first novice
+  const samplePlan = await ParticipantTrialPlan.findOne({ participantId: NOV1 }).lean()
   if (!samplePlan || !samplePlan.trials || samplePlan.trials.length !== 12) {
     throw new Error('Trial plan not generated properly')
   }
@@ -143,7 +145,7 @@ async function runRobustnessTest() {
   const invalidTelemetryEvent = {
     eventId: 'EV-INVALID-01',
     eventType: 'FINAL_ESTIMATE_SUBMITTED',
-    participantId: 'P-NOV-01',
+    participantId: NOV1,
     sessionId: 'SESS-01',
     condition: 'c1',
     participantType: 'novice',
@@ -159,7 +161,7 @@ async function runRobustnessTest() {
     body: [invalidTelemetryEvent],
   })
   await telemetryHandler(reqInv, resInv)
-  const invalidCheck = await TrialResult.findOne({ participantId: 'P-NOV-01', trialId: 'SS-1' })
+  const invalidCheck = await TrialResult.findOne({ participantId: NOV1, trialId: 'SS-1' })
   if (invalidCheck) {
     throw new Error('Invalid telemetry estimate should have been rejected by server validation')
   }
@@ -169,7 +171,7 @@ async function runRobustnessTest() {
   const validEvent = {
     eventId: 'EV-VALID-01',
     eventType: 'FINAL_ESTIMATE_SUBMITTED',
-    participantId: 'P-NOV-01',
+    participantId: NOV1,
     sessionId: 'SESS-01',
     condition: 'c1',
     participantType: 'novice',
@@ -193,7 +195,7 @@ async function runRobustnessTest() {
   })
   await telemetryHandler(reqVal, resVal)
 
-  const savedTrial = await TrialResult.findOne({ participantId: 'P-NOV-01', trialId: 'SS-1' }).lean()
+  const savedTrial = await TrialResult.findOne({ participantId: NOV1, trialId: 'SS-1' }).lean()
   console.log('Retrieved TrialResult from MongoDB:', {
     participantId: savedTrial.participantId,
     trialId: savedTrial.trialId,
@@ -220,7 +222,7 @@ async function runRobustnessTest() {
   console.log('✓ Directional Cost Regret (1.85× stockout penalty) verified with exact precision');
 
   // Verify participant status transitioned to in_progress
-  const modeAfterTrial = await ParticipantMode.findOne({ participantId: 'P-NOV-01' }).lean()
+  const modeAfterTrial = await ParticipantMode.findOne({ participantId: NOV1 }).lean()
   if (modeAfterTrial.status !== 'in_progress') {
     throw new Error(`Expected status 'in_progress', got '${modeAfterTrial.status}'`)
   }
@@ -233,7 +235,7 @@ async function runRobustnessTest() {
   const questionnaireEvent = {
     eventId: 'EV-POST-01',
     eventType: 'QUESTIONNAIRE_COMPLETED',
-    participantId: 'P-NOV-01',
+    participantId: NOV1,
     sessionId: 'SESS-01',
     condition: 'c1',
     participantType: 'novice',
@@ -271,7 +273,7 @@ async function runRobustnessTest() {
   })
   await telemetryHandler(reqPost, resPost)
 
-  const savedPostTask = await PostTaskResponse.findOne({ participantId: 'P-NOV-01' }).lean()
+  const savedPostTask = await PostTaskResponse.findOne({ participantId: NOV1 }).lean()
   console.log('Retrieved PostTaskResponse from MongoDB:', {
     participantId: savedPostTask.participantId,
     rawTlxAverage: savedPostTask.nasaTlx.rawTlxAverage,
@@ -286,7 +288,7 @@ async function runRobustnessTest() {
   console.log('✓ PostTaskResponse saved and verified');
 
   // Verify status transitioned to completed
-  const modeAfterComplete = await ParticipantMode.findOne({ participantId: 'P-NOV-01' }).lean()
+  const modeAfterComplete = await ParticipantMode.findOne({ participantId: NOV1 }).lean()
   console.log(`✓ Participant lifecycle status updated to: '${modeAfterComplete.status}'`);
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -346,10 +348,11 @@ async function runRobustnessTest() {
   // TEST 6: Inactive Slot Reclamation & Counter Reconciliation
   // ──────────────────────────────────────────────────────────────────────────
   console.log('\n--- TEST 6: Inactive Slot Reclamation & ModeCounter Reconciliation ---');
-  // Backdate participant P-NOV-08 to 5 hours ago (assigned but never active)
+  // Backdate the last enrolled novice to 5 hours ago (assigned but never active)
+  const NOV_LAST = novices[novices.length - 1].participantId
   await ParticipantMode.updateOne(
-    { participantId: 'P-NOV-08' },
-    { $set: { assignedAt: new Date(Date.now() - 5 * 3600 * 1000) } }
+    { participantId: NOV_LAST },
+    { $set: { assignedAt: new Date(Date.now() - 5 * 3600 * 1000), lastActiveAt: new Date(Date.now() - 5 * 3600 * 1000) } }
   )
 
   const { req: reqRec, res: resRec } = createMockReqRes({
@@ -361,9 +364,9 @@ async function runRobustnessTest() {
   const reclaimData = resRec._getData().responseData
   console.log('Reclaim Result:', reclaimData);
 
-  const reclaimedP = await ParticipantMode.findOne({ participantId: 'P-NOV-08' }).lean()
-  if (reclaimedP.status !== 'abandoned') {
-    throw new Error(`Expected participant P-NOV-08 to be marked 'abandoned', got '${reclaimedP.status}'`)
+  const reclaimedP = await ParticipantMode.findOne({ participantId: NOV_LAST }).lean()
+  if (!reclaimedP || reclaimedP.status !== 'abandoned') {
+    throw new Error(`Expected ${NOV_LAST} to be marked 'abandoned', got '${reclaimedP?.status}'`)
   }
   console.log('✓ Inactive slot reclaimed and balancing counters successfully reconciled');
 
@@ -373,7 +376,7 @@ async function runRobustnessTest() {
   console.log('\n--- TEST 7: Participant Data Withdrawal & Multi-Collection Purge ---');
   const { req: reqWd, res: resWd } = createMockReqRes({
     method: 'POST',
-    body: { participantId: 'P-NOV-01', reason: 'Participant voluntary withdrawal request' },
+    body: { participantId: NOV1, reason: 'Participant voluntary withdrawal request' },
     headers: { 'x-admin-secret': 'study-admin-secret-2026' },
   })
   await withdrawHandler(reqWd, resWd)
@@ -382,10 +385,10 @@ async function runRobustnessTest() {
 
   // Confirm complete absence across all collections
   const [checkMode, checkPlan, checkTrials, checkPost] = await Promise.all([
-    ParticipantMode.findOne({ participantId: 'P-NOV-01' }),
-    ParticipantTrialPlan.findOne({ participantId: 'P-NOV-01' }),
-    TrialResult.find({ participantId: 'P-NOV-01' }),
-    PostTaskResponse.findOne({ participantId: 'P-NOV-01' }),
+    ParticipantMode.findOne({ participantId: NOV1 }),
+    ParticipantTrialPlan.findOne({ participantId: NOV1 }),
+    TrialResult.find({ participantId: NOV1 }),
+    PostTaskResponse.findOne({ participantId: NOV1 }),
   ])
 
   if (checkMode || checkPlan || checkTrials.length > 0 || checkPost) {

@@ -2,7 +2,16 @@ import React, { useState } from 'react'
 import Scale from '../common/Scale.jsx'
 import NumberLineInput from '../common/NumberLineInput.jsx'
 import { validateNumericEstimate, validateVerificationResponse } from '../../services/validationService.js'
+import { getScenarioScaleBounds } from '../../utils/numberLine.js'
+import { getDecisionPrompt } from '../../scenarios/index.js'
 
+/**
+ * Resolves the Step-1 / Step-4 decision question for a trial.
+ *
+ * Every scored decision family is covered here. The scenario's own
+ * `decisionPrompt` is the final fallback so no trial can ever render an
+ * empty question heading.
+ */
 function getDecisionQuestion(trial, step) {
   const location = `${trial.title || trial.store}, ${trial.category || trial.department}`
 
@@ -18,7 +27,19 @@ function getDecisionQuestion(trial, step) {
       : `Given everything you've seen, what's your final order quantity for ${location}'s upcoming peak week?`
   }
 
-  return null
+  if (trial.scenarioType === 'reorderPoint') {
+    return step === 1
+      ? `At what inventory level should ${location} trigger a replenishment order, given how long the supplier takes to deliver?`
+      : `Given everything you've seen, what's your final reorder point for ${location}?`
+  }
+
+  if (trial.scenarioType === 'expediteOrWait') {
+    return step === 1
+      ? `How much should ${location} pay to expedite this shipment, given the risk of it arriving late?`
+      : `Given everything you've seen, what's your final expedite payment for ${location}?`
+  }
+
+  return getDecisionPrompt(trial, step === 1 ? 1 : 4) || null
 }
 
 /**
@@ -27,7 +48,9 @@ function getDecisionQuestion(trial, step) {
  */
 export function Step1({ type, trial, initialEstimate, onInitialEstimate, initialConfidence, onInitialConfidence, onSubmit }) {
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const validation = validateNumericEstimate(initialEstimate)
+  const band = getScenarioScaleBounds(trial)
+  const validation = validateNumericEstimate(initialEstimate, band)
+  const showRangeError = initialEstimate !== '' && !validation.isValid
   const canSubmit = validation.isValid && initialConfidence !== null && !isSubmitting
 
   function handleSubmit(e) {
@@ -43,6 +66,7 @@ export function Step1({ type, trial, initialEstimate, onInitialEstimate, initial
       {getDecisionQuestion(trial, 1) && (
         <p className="field-note">Enter a dollar amount using the scale or the input box.</p>
       )}
+      {showRangeError && <p className="field-error" role="alert">{validation.error}</p>}
       
       <NumberLineInput
         id="initial-decision"
@@ -70,7 +94,7 @@ export function Step1({ type, trial, initialEstimate, onInitialEstimate, initial
 /**
  * Step 2 — AI Recommendation and Condition Explanation reveal.
  */
-export function Step2({ condition, explanation, onContinue, isFetchingAdvice }) {
+export function Step2({ condition, explanation, onContinue, isFetchingAdvice, adviceError, onRetryAdvice }) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const explanationFactors = explanation?.factors || []
   const explanationText = typeof explanation === 'string' ? explanation : null
@@ -79,6 +103,21 @@ export function Step2({ condition, explanation, onContinue, isFetchingAdvice }) 
     if (isSubmitting || isFetchingAdvice) return
     setIsSubmitting(true)
     onContinue()
+  }
+
+  // The recommendation could not be resolved and there is no server-issued plan
+  // to fall back on. Showing a guessed value here would fabricate the
+  // correctness manipulation, so the trial stops and offers a retry instead.
+  if (adviceError) {
+    return (
+      <section className="card explanation" role="alert">
+        <p className="eyebrow">Connection problem</p>
+        <p>{adviceError}</p>
+        <button className="button primary full" type="button" onClick={onRetryAdvice} style={{ marginTop: 14 }}>
+          Retry <span>↻</span>
+        </button>
+      </section>
+    )
   }
 
   return (
@@ -189,7 +228,9 @@ export function Step4({
   onSubmit,
 }) {
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const validation = validateNumericEstimate(finalEstimate)
+  const band = getScenarioScaleBounds(trial)
+  const validation = validateNumericEstimate(finalEstimate, band)
+  const showRangeError = finalEstimate !== '' && !validation.isValid
   const canSubmit = validation.isValid && finalConfidence !== null && cognitiveLoad !== null && !isSubmitting
 
   function handleSubmit(e) {
@@ -211,6 +252,8 @@ export function Step4({
         placeholder="Select or enter your final decision"
         autoFocus
       />
+
+      {showRangeError && <p className="field-error" role="alert">{validation.error}</p>}
 
       <p className="field-note">
         You may keep your original estimate, adopt the AI recommendation, or select any point on the scale.

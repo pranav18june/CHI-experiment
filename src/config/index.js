@@ -42,6 +42,19 @@ export const CONFIG = {
     ENABLE_POST_TASK_QUESTIONNAIRES: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_ENABLE_POST_TASK === 'true'),
   },
 
+  // ==========================================================================
+  // PLACEHOLDER PENDING RESEARCHER SIGN-OFF (§9, §12 item 15):
+  // Minimum plausible time on a scored trial. §9 pre-registers exclusion for
+  // "per-trial time below a pilot-set floor". Trials faster than this are
+  // flagged (`belowTimeFloor`) at write time — never silently dropped — so the
+  // exclusion stays a documented analysis decision. Set from the pilot.
+  // ==========================================================================
+  MIN_TRIAL_DURATION_MS: Number(
+    (typeof process !== 'undefined' && process?.env?.MIN_TRIAL_DURATION_MS) ||
+    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_MIN_TRIAL_DURATION_MS) ||
+    8000
+  ),
+
   // Likert scale configuration
   SCALE_RANGE: [1, 2, 3, 4, 5, 6, 7],
 

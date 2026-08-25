@@ -18,9 +18,18 @@ import { useStudyContext, PHASE_TO_PATH } from '../context/StudyContext.jsx'
  * @param {React.ReactNode} children - The page component to render if access is allowed
  */
 export function GuardedRoute({ allowedPhases, children }) {
-  const { phase } = useStudyContext()
+  const { phase, isExcluded, isPreviewOverride } = useStudyContext()
 
-  if (!allowedPhases.includes(phase)) {
+  // Researcher preview (VITE_ALLOW_URL_OVERRIDES) bypasses sequencing on purpose;
+  // those sessions are stamped and are not collected data.
+  if (isPreviewOverride) return children
+
+  // A pre-registered exclusion outranks the phase table: nothing but /excluded.
+  if (isExcluded) {
+    return allowedPhases?.includes('excluded') ? children : <Navigate to="/excluded" replace />
+  }
+
+  if (!allowedPhases || !allowedPhases.includes(phase)) {
     const redirectPath = PHASE_TO_PATH[phase] ?? '/'
     return <Navigate to={redirectPath} replace />
   }

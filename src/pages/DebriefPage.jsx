@@ -7,12 +7,12 @@ import { Debrief } from '../components/pages/PostTrialPages.jsx'
  * rights after all scored trials and post-task questionnaires are complete.
  */
 export default function DebriefPage() {
-  const { participantId, setPhase } = useStudyContext()
+  const { participantId, handleDebriefComplete } = useStudyContext()
 
   return (
     <Debrief
       participantId={participantId}
-      onComplete={() => setPhase('complete')}
+      onComplete={handleDebriefComplete}
     />
   )
 }

@@ -2,6 +2,7 @@ import { connectToDatabase } from '../../lib/mongodb.js'
 import ParticipantMode from '../../lib/models/ParticipantMode.js'
 import ParticipantTrialPlan from '../../lib/models/ParticipantTrialPlan.js'
 import ModeCounter from '../../lib/models/ModeCounter.js'
+import { applyCors, rejectUnauthorizedAdmin } from '../../lib/http.js'
 
 export const CONDITIONS = ['c0', 'c1', 'c2', 'c3']
 export const SCHEDULE_KEYS = ['s0', 's1', 's2', 's3', 's4', 's5', 's6', 's7']
@@ -21,21 +22,12 @@ export const SCHEDULE_KEYS = ['s0', 's1', 's2', 's3', 's4', 's5', 's6', 's7']
  * per-cell depth drift in the min-count balancing algorithm.
  */
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Credentials', 'true')
-  res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Content-Type, x-admin-secret')
-
-  if (req.method === 'OPTIONS') return res.status(200).end()
+  if (applyCors(req, res, { methods: 'GET,OPTIONS,POST' })) return
   if (req.method !== 'POST' && req.method !== 'GET') {
     return res.status(405).json({ error: 'Method Not Allowed' })
   }
 
-  const secret = process.env.ADMIN_SECRET || 'study-admin'
-  const provided = req.headers['x-admin-secret']
-  if (!provided || provided !== secret) {
-    return res.status(401).json({ error: 'Unauthorized' })
-  }
+  if (rejectUnauthorizedAdmin(req, res)) return
 
   try {
     await connectToDatabase()

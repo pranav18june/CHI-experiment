@@ -1,10 +1,54 @@
-import React from 'react'
+import React, { useEffect, useRef } from 'react'
 import { Step1, Step2, Step3, Step4 } from './TrialSteps.jsx'
 import { formatCurrency } from '../../utils/formatters.js'
-import { scenarios } from '../../scenarios/index.js'
+import telemetry from '../../telemetry.js'
+
+/**
+ * Counts chart revisits (Appendix C.4).
+ *
+ * A "revisit" is the chart re-entering view after having left it, plus any
+ * direct interaction with it. The first appearance is not a revisit.
+ */
+function useChartRevisitTracking(trialId) {
+  const chartRef = useRef(null)
+  const wasVisible = useRef(false)
+  const hasAppearedOnce = useRef(false)
+
+  useEffect(() => {
+    const node = chartRef.current
+    if (!node || typeof IntersectionObserver === 'undefined') return
+
+    // Reset per trial: revisits are counted within a trial, not across the session.
+    wasVisible.current = false
+    hasAppearedOnce.current = false
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        const visible = entry.isIntersecting && entry.intersectionRatio > 0.4
+        const returned = visible && !wasVisible.current
+
+        if (returned) {
+          if (hasAppearedOnce.current) {
+            telemetry.recordChartRevisit({ trialId })
+          } else {
+            hasAppearedOnce.current = true // the first appearance is not a revisit
+          }
+        }
+        wasVisible.current = visible
+      },
+      { threshold: [0, 0.4, 1] }
+    )
+
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [trialId])
+
+  return chartRef
+}
 
 export function TrialShell({
   trial, type, trialStep, condition, explanation, fetchedAdvice, isFetchingAdvice,
+  adviceError, onRetryAdvice,
   // Step 1
   initialEstimate, onInitialEstimate, initialConfidence, onInitialConfidence, onSubmitStep1,
   // Step 2
@@ -15,15 +59,15 @@ export function TrialShell({
   finalEstimate, onFinalEstimate, finalConfidence, onFinalConfidence,
   cognitiveLoad, onCognitiveLoad, onSubmitStep4,
 }) {
-  const showDrivers = condition === 'c1'
   // SECURE ANCHORING FIX: AI recommendation is ONLY rendered when trialStep >= 2 AND fetchedAdvice is available.
-  const showRecommendation = trialStep >= 2 && fetchedAdvice != null
+  const showRecommendation = trialStep >= 2 && fetchedAdvice != null && !adviceError
 
   const title = trial.title || trial.store
   const category = trial.category || trial.department
   const profile = trial.description || trial.profile
   const chartHint = trial.chart?.hint || trial.chartHint
   const recAmount = fetchedAdvice ?? (typeof trial.recommendation === 'object' ? (trial.recommendation.active ?? trial.recommendation.correct) : trial.recommendation)
+  const chartRef = useChartRevisitTracking(trial.id)
 
   return (
     <section className="trial-layout">
@@ -46,15 +90,17 @@ export function TrialShell({
               </div>
               <span className="data-source">Historical data</span>
             </div>
-            <div className="chart-placeholder">
+            <div
+              className="chart-placeholder"
+              ref={chartRef}
+              onPointerDown={() => telemetry.recordChartRevisit({ trialId: trial.id, via: 'interaction' })}
+            >
               <div className="axis y"><span>higher</span><span>lower</span></div>
               <div className="grid-lines"><i /><i /><i /><i /><i /></div>
-              {/* Show per-scenario image when available (user-supplied images named 1.png..12.png) */}
+              {/* Chart asset resolved from the scenario itself (see chartImage). */}
               {
                 (() => {
-                  const idx = scenarios.findIndex((s) => s.id === trial.id)
-                  const imageOrder = idx >= 0 ? idx + 1 : null
-                  const imageSrc = imageOrder ? `/graphs/${imageOrder}.png` : null
+                  const imageSrc = trial.chartImage || null
                   if (imageSrc) {
                     return (
                       <img
@@ -74,7 +120,6 @@ export function TrialShell({
               }
               <div className="axis x"><span>Earlier</span><span>Most recent</span></div>
             </div>
-            <p className="chart-footnote">The final study will display the real historical series supplied by the research dataset.</p>
           </section>
 
           {trial.historicalStatistic && (
@@ -84,28 +129,12 @@ export function TrialShell({
             </section>
           )}
 
-          {showDrivers && trial.drivers && trial.drivers.length > 0 && (
-            <section className="card drivers-card">
-              <div className="card-heading">
-                <div>
-                  <h2>Factors historically associated with sales</h2>
-                  <p>Observed correlations, not a predictive model</p>
-                </div>
-              </div>
-              <div className="driver-list">
-                {trial.drivers.map((driver, idx) => {
-                  const name = Array.isArray(driver) ? driver[0] : driver.name
-                  const value = Array.isArray(driver) ? driver[1] : driver.weight
-                  return (
-                    <div key={name || idx}>
-                      <span>{name}</span>
-                      <strong>{value}</strong>
-                    </div>
-                  )
-                })}
-              </div>
-            </section>
-          )}
+          {/*
+            C1's driver attributions are an explanation layer, not base information:
+            §5.9 reveals the AI recommendation and the condition's explanation only at
+            Step 2. They render in the decision column (see Step2) so the Step-1
+            independent estimate stays independent — and comparable to C0/C2/C3.
+          */}
         </div>
 
         {/* Right Column: Decision Flow */}
@@ -136,6 +165,8 @@ export function TrialShell({
               explanation={explanation}
               onContinue={onAcknowledgeAI}
               isFetchingAdvice={isFetchingAdvice}
+              adviceError={adviceError}
+              onRetryAdvice={onRetryAdvice}
             />
           )}
 

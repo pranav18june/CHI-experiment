@@ -10,34 +10,52 @@ export const trials = newScenarios
 export const practiceTrials = newPracticeScenarios
 
 // ─── Workshop cards (shown to novices during training) ────────────────────────
+//
+// Protocol §5.7. Teaches chart-reading and the QUALITATIVE logic only — never
+// the formula and never how to compute a dollar answer (target:
+// perceptible-but-not-computable). Deliberately neutral in tone: it must not
+// tell participants the AI is often wrong or instruct them to scrutinise it.
+// The three qualitative rules below are exactly what Appendix C.1 then tests.
 export const workshop = [
   [
     'The task',
-    'You will review historical sales information and an AI recommendation, then make an inventory decision. You are not required to follow the AI.',
+    'You will review historical sales information for a store and product category, then decide how much inventory to hold or order. You will make each decision yourself.',
   ],
   [
-    'The chart',
-    'It shows real historical sales or demand data for a single store and product category. Study it carefully before entering your first estimate.',
+    'Reading the chart',
+    'The chart shows real historical sales week by week. Look at two things: the usual level the line sits around, and how far it swings above and below that level from week to week.',
   ],
   [
-    'The AI suggestion',
-    'After your initial estimate, you will see the AI recommendation. Some recommendations in this study may not be accurate — use your own judgment.',
+    'Swings and buffers',
+    'The more sales swing from week to week, the harder the next week is to predict — and the larger a buffer has to be to absorb that swing. Steadier demand needs a smaller buffer.',
+  ],
+  [
+    'Peaks and one-off orders',
+    'For a single pre-peak order, the peaks matter more than the average. When past peaks were large or varied a lot, the order needs to sit further above the average week.',
+  ],
+  [
+    'The cost of being wrong',
+    'The two ways of being wrong do not cost the same. Running short and losing sales costs the business more than holding some extra stock.',
   ],
   [
     'How each decision works',
-    'Each decision has four steps: your independent estimate, the AI reveal, a quick verification check, then your final answer.',
+    'Each decision has four steps: your own estimate, the AI recommendation, a quick check of that recommendation against the chart, then your final answer.',
   ],
 ]
 
 // ─── Expert walkthrough cards ─────────────────────────────────────────────────
+//
+// Protocol §5.2/§5.7: experts receive the INTERFACE walkthrough only. No
+// training on the decision logic — equalising training would collapse the
+// expertise contrast — and the same neutral tone as the novice module.
 export const expertWalkthrough = [
   [
     'The interface',
     'Each decision shows historical data on the left and your decision controls on the right. You will work through four steps per scenario.',
   ],
   [
-    'AI recommendations',
-    'After your independent estimate, you will see the AI recommendation. Some recommendations are intentionally inaccurate — apply your professional judgment.',
+    'The sequence',
+    'You commit an independent estimate first. The AI recommendation appears only afterwards, followed by a short check and your final answer.',
   ],
   [
     'Your judgment',

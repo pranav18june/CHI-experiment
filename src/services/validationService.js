@@ -31,11 +31,26 @@ export function normalizeNumericInput(input) {
  * @param {string|number} input
  * @returns {{ isValid: boolean, error: string|null, value: number|null }}
  */
-export function validateNumericEstimate(input) {
+export function validateNumericEstimate(input, band = null) {
   const normalized = normalizeNumericInput(input)
 
   if (Number.isNaN(normalized)) {
     return { isValid: false, error: 'Please enter a valid amount.', value: null }
+  }
+
+  // The slider is clamped to the scenario's response band, but the text box was
+  // not: any non-negative number was accepted. A single mistyped order of
+  // magnitude produces a cost regret large enough to dominate the primary DV,
+  // so the same bound applies to both inputs (§5.9).
+  if (band && Number.isFinite(band.min) && Number.isFinite(band.max)) {
+    if (normalized < band.min || normalized > band.max) {
+      const fmt = (n) => '$' + Math.round(n).toLocaleString('en-US')
+      return {
+        isValid: false,
+        error: `Please enter an amount between ${fmt(band.min)} and ${fmt(band.max)}.`,
+        value: null,
+      }
+    }
   }
 
   return { isValid: true, error: null, value: normalized }

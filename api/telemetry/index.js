@@ -6,6 +6,7 @@ import ParticipantMode from '../../lib/models/ParticipantMode.js'
 import ParticipantTrialPlan from '../../lib/models/ParticipantTrialPlan.js'
 import { getScenarioById, getExplanation } from '../../src/scenarios/index.js'
 import { STOCKOUT_PENALTY_WEIGHT, HOLDING_PENALTY_WEIGHT, CONFIG } from '../../src/config/index.js'
+import { applyCors, checkIngestLimits } from '../../lib/http.js'
 
 /**
  * Helper to compute Weight of Advice (WoA).
@@ -28,16 +29,29 @@ function validateEstimateBounds(trialId, value) {
   if (num < 0) return { valid: false, reason: 'Value cannot be negative' }
 
   const scenario = getScenarioById(trialId)
-  if (!scenario) return { valid: true, sanitized: num }
+  if (!scenario) return { valid: true, sanitized: num, inBand: true }
 
-  const baseline = scenario.historicalDemand?.mean || scenario.groundTruthOptimal || 10000
-  const maxPlausible = Math.max(baseline * 5, 2000000) // Hard plausible ceiling
+  // Plausibility is the scenario's own declared response band (§5.9) — the same
+  // range the number line offers. The previous rule was
+  // `Math.max(baseline * 5, 2000000)`, which should have been a `Math.min`:
+  // every scenario's baseline*5 is under 2,000,000, so the per-scenario bound
+  // never bound anything and every trial had a flat 2M ceiling. A typed
+  // 1,999,999 on SS-1 (band 0–70,000, optimum 29,251) passed, and one such row
+  // would dominate mean directional regret — the primary DV.
+  const band = scenario.numberLine
+  if (!band || !Number.isFinite(band.max)) return { valid: true, sanitized: num, inBand: true }
 
-  if (num > maxPlausible) {
-    return { valid: false, reason: `Value ${num} exceeds maximum plausible threshold ${maxPlausible}` }
+  // A small tolerance above the band absorbs rounding at the top of the scale
+  // without admitting an order-of-magnitude typo.
+  const ceiling = band.max * 1.05
+  const floor = Math.max(0, (band.min ?? 0) - band.max * 0.05)
+
+  return {
+    valid: true,
+    sanitized: num,
+    inBand: num >= floor && num <= ceiling,
+    band: { min: band.min ?? 0, max: band.max },
   }
-
-  return { valid: true, sanitized: num }
 }
 
 /**
@@ -72,18 +86,7 @@ function calculateRegret(
 }
 
 export default async function handler(req, res) {
-  // CORS Headers for cross-origin research deployments
-  res.setHeader('Access-Control-Allow-Credentials', 'true')
-  res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT')
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
-  )
-
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end()
-  }
+  if (applyCors(req, res, { methods: 'GET,OPTIONS,POST' })) return
 
   // ── SERVER-SIDE ADVICE RESOLUTION (LATIN-SQUARE TRIAL PLAN RESOLUTION) ──────
   if (req.method === 'GET') {
@@ -121,18 +124,25 @@ export default async function handler(req, res) {
       }
     }
 
-    // Default fallback if not found in plan
     if (recAmount == null) {
       if (scenario.isPractice) {
-        isCorrect = true
-        errorDirection = 'na'
-        recAmount = typeof scenario.recommendation === 'object'
-          ? (scenario.recommendation.correct ?? scenario.recommendation.optimal)
-          : scenario.recommendation
+        // Practice correctness is a property of the scenario itself (§5.8) —
+        // PRAC-2 deliberately shows a wrong AI so the feedback can teach
+        // verification.
+        const rec = typeof scenario.recommendation === 'object' ? scenario.recommendation : {}
+        const truth = rec.correct ?? rec.optimal
+        const shown = rec.active ?? truth
+        isCorrect = shown === truth
+        errorDirection = isCorrect ? 'na' : (shown > truth ? 'high' : 'low')
+        recAmount = shown ?? scenario.recommendation
       } else {
-        recAmount = typeof scenario.recommendation === 'object'
-          ? (isCorrect ? scenario.recommendation.correct : (scenario.recommendation.incorrect ?? scenario.recommendation.active))
-          : scenario.recommendation
+        // A scored trial with no plan entry must NOT be answered with a guess.
+        // The previous default silently served the incorrect version with
+        // errorDirection 'high', fabricating the correctness manipulation.
+        return res.status(409).json({
+          error: 'No assignment found for this participant and trial',
+          code: 'NO_SERVER_PLAN',
+        })
       }
     }
 
@@ -140,13 +150,13 @@ export default async function handler(req, res) {
       explanationText = getExplanation(scenario, condition || 'c0', isCorrect)
     }
 
+    // Correctness and ground truth are deliberately NOT returned: the browser
+    // does not need them to render, and the server resolves both from its own
+    // plan when the trial is written.
     return res.status(200).json({
       trialId,
       recommendation: recAmount,
       explanation: condition === 'c0' ? null : explanationText,
-      isCorrect,
-      errorDirection,
-      groundTruthOptimal: scenario.groundTruthOptimal ?? (typeof scenario.recommendation === 'object' ? (scenario.recommendation.correct ?? scenario.recommendation.optimal) : null),
     })
   }
 
@@ -162,6 +172,39 @@ export default async function handler(req, res) {
 
     if (eventsToProcess.length === 0) {
       return res.status(400).json({ error: 'Empty event payload' })
+    }
+
+    // Reject oversized batches before touching the database.
+    const limitRejection = checkIngestLimits(eventsToProcess)
+    if (limitRejection) {
+      return res.status(limitRejection.status).json(limitRejection.body)
+    }
+
+    // ── Load the authoritative assignment for every participant in this batch ──
+    // The client's copies of condition / correctness / ground truth are NOT
+    // trusted: a stale autosave, a URL override, or an edited payload would
+    // otherwise write an authoritative-looking row. ParticipantTrialPlan and
+    // ParticipantMode are the authority; client values are kept only so a
+    // mismatch can be detected and flagged.
+    const participantIds = [...new Set(
+      eventsToProcess
+        .filter((ev) => ev?.eventType === 'FINAL_ESTIMATE_SUBMITTED' && ev.participantId)
+        .map((ev) => ev.participantId)
+    )]
+
+    const planByParticipant = new Map()
+    const modeByParticipant = new Map()
+    if (participantIds.length > 0) {
+      const [plans, modes] = await Promise.all([
+        ParticipantTrialPlan.find({ participantId: { $in: participantIds } }).lean(),
+        ParticipantMode.find({ participantId: { $in: participantIds } }).lean(),
+      ])
+      for (const plan of plans) {
+        const byTrial = new Map()
+        for (const t of plan.trials || []) byTrial.set(t.trialId, t)
+        planByParticipant.set(plan.participantId, { doc: plan, byTrial })
+      }
+      for (const m of modes) modeByParticipant.set(m.participantId, m)
     }
 
     // Process all incoming event envelopes
@@ -193,7 +236,11 @@ export default async function handler(req, res) {
       // Lifecycle status tracking
       if (ev.eventType === 'PARTICIPANT_EXCLUDED') {
         participantStatusUpdates.set(ev.participantId, 'excluded')
-      } else if (ev.eventType === 'QUESTIONNAIRE_COMPLETED' || ev.eventType === 'STUDY_COMPLETED') {
+      } else if (
+        ev.eventType === 'QUESTIONNAIRE_COMPLETED' ||
+        ev.eventType === 'STUDY_COMPLETED' ||
+        ev.eventType === 'SESSION_COMPLETED'
+      ) {
         if (participantStatusUpdates.get(ev.participantId) !== 'excluded') {
           participantStatusUpdates.set(ev.participantId, 'completed')
         }
@@ -215,19 +262,78 @@ export default async function handler(req, res) {
         const valInitial = validateEstimateBounds(ev.trialId, p.initialEstimate)
         const valFinal = validateEstimateBounds(ev.trialId, p.finalEstimate)
 
+        // Only a value that cannot be represented at all is dropped (non-finite
+        // or negative — the UI cannot produce either). An implausible-but-real
+        // number is RECORDED AND FLAGGED, never discarded: `continue` here used
+        // to delete the whole trial on a console.warn nobody reads, which is
+        // silent data loss. Excluding an out-of-band trial is an analysis
+        // decision, and it can only be made if the row exists.
         if (!valInitial.valid || !valFinal.valid) {
-          console.warn(`[telemetry validation reject] Invalid estimates for participant ${ev.participantId} trial ${ev.trialId}:`, { valInitial, valFinal })
+          console.warn(
+            `[telemetry] unrepresentable estimate for ${ev.participantId} trial ${ev.trialId} — row not written:`,
+            { valInitial, valFinal }
+          )
           continue
         }
 
         const scenario = getScenarioById(ev.trialId)
-        const groundTruthOptimal = p.groundTruthOptimal != null
-          ? Number(p.groundTruthOptimal)
-          : (scenario?.groundTruthOptimal ?? scenario?.recommendation?.correct ?? scenario?.recommendation?.optimal ?? null)
+        const isPractice = Boolean(p.isPractice)
+
+        // ── Authoritative resolution ────────────────────────────────────────
+        // Scored trials take condition, correctness, error direction, AI value
+        // and ground truth from the server-side plan. Practice trials have no
+        // plan entry and fall back to the scenario definition.
+        const plan = planByParticipant.get(ev.participantId)
+        const planItem = isPractice ? null : plan?.byTrial.get(ev.trialId)
+        const mode = modeByParticipant.get(ev.participantId)
+
+        const condition = mode?.condition ?? plan?.doc?.condition ?? ev.condition ?? null
+        const participantType = mode?.participantType ?? plan?.doc?.participantType ?? ev.participantType ?? null
+
+        const isCorrect = planItem
+          ? Boolean(planItem.isCorrect)
+          : (isPractice ? (p.isCorrect != null ? Boolean(p.isCorrect) : null) : null)
+        const errorDirection = planItem
+          ? planItem.errorDirection
+          : (isPractice ? (p.errorDirection || 'na') : null)
+
+        const groundTruthOptimal = planItem?.groundTruthOptimal
+          ?? scenario?.groundTruthOptimal
+          ?? scenario?.recommendation?.correct
+          ?? scenario?.recommendation?.optimal
+          ?? null
+
+        const authoritativeAI = planItem?.recommendation ?? (
+          scenario && typeof scenario.recommendation === 'object'
+            ? (isCorrect === false
+                ? (scenario.recommendation.incorrect ?? scenario.recommendation.active)
+                : (scenario.recommendation.correct ?? scenario.recommendation.optimal))
+            : null
+        )
 
         const sanitizedInitial = valInitial.sanitized
         const sanitizedFinal = valFinal.sanitized
-        const sanitizedAI = Number(p.aiRecommendation)
+        const clientAI = Number(p.aiRecommendation)
+        const sanitizedAI = Number.isFinite(Number(authoritativeAI)) ? Number(authoritativeAI) : clientAI
+
+        // Integrity flags — recorded, never silently corrected, so a tampered or
+        // diverged session is visible in the export rather than invisible in it.
+        const integrityFlags = []
+        if (!isPractice && !planItem) integrityFlags.push('NO_SERVER_PLAN')
+        if (Number.isFinite(clientAI) && Number.isFinite(Number(authoritativeAI)) && clientAI !== Number(authoritativeAI)) {
+          integrityFlags.push('AI_VALUE_MISMATCH')
+        }
+        if (ev.condition && condition && ev.condition !== condition) integrityFlags.push('CONDITION_MISMATCH')
+        if (valInitial.inBand === false) integrityFlags.push('INITIAL_ESTIMATE_OUT_OF_BAND')
+        if (valFinal.inBand === false) integrityFlags.push('FINAL_ESTIMATE_OUT_OF_BAND')
+        if (p.isCorrect != null && isCorrect != null && Boolean(p.isCorrect) !== isCorrect) {
+          integrityFlags.push('CORRECTNESS_MISMATCH')
+        }
+
+        // §9 — per-trial time floor. Flagged at write time; the exclusion itself
+        // stays an explicit analysis decision.
+        const trialDurationMs = Number(p.totalTrialDwellMs) || 0
+        const belowTimeFloor = trialDurationMs > 0 && trialDurationMs < (CONFIG.MIN_TRIAL_DURATION_MS || 0)
 
         const woa = calculateWoA(sanitizedInitial, sanitizedAI, sanitizedFinal)
         const { costRegret, directionalCostRegret } = calculateRegret(sanitizedFinal, groundTruthOptimal)
@@ -246,13 +352,14 @@ export default async function handler(req, res) {
               $set: {
                 participantId: ev.participantId,
                 sessionId: ev.sessionId,
-                condition: ev.condition,
-                participantType: ev.participantType || null,
+                condition,
+                participantType,
                 trialId: ev.trialId,
                 scenarioType,
-                isPractice: Boolean(p.isPractice),
-                isCorrect: p.isCorrect != null ? Boolean(p.isCorrect) : null,
-                errorDirection: p.errorDirection || null,
+                isPractice,
+                trialPosition: planItem?.orderIndex ?? (Number(p.orderIndex) || null),
+                isCorrect,
+                errorDirection,
                 groundTruthOptimal,
                 costRegret,
                 directionalCostRegret,
@@ -265,8 +372,33 @@ export default async function handler(req, res) {
                 finalConfidence: p.finalConfidence ? Number(p.finalConfidence) : null,
                 cognitiveLoad: p.cognitiveLoad ? Number(p.cognitiveLoad) : null,
                 verificationResponse: p.verificationResponse || null,
-                step4DwellMs: p.step4DwellMs || 0,
-                totalTrialDwellMs: p.totalTrialDwellMs || 0,
+
+                // Per-step dwell (Appendix C.4)
+                step1DwellMs: Number(p.step1DwellMs) || 0,
+                step2DwellMs: Number(p.step2DwellMs) || 0,
+                step3DwellMs: Number(p.step3DwellMs) || 0,
+                step4DwellMs: Number(p.step4DwellMs) || 0,
+                totalTrialDwellMs: trialDurationMs,
+                step1ActiveDwellMs: Number(p.step1ActiveDwellMs) || 0,
+                step2ActiveDwellMs: Number(p.step2ActiveDwellMs) || 0,
+                step3ActiveDwellMs: Number(p.step3ActiveDwellMs) || 0,
+                step4ActiveDwellMs: Number(p.step4ActiveDwellMs) || 0,
+                totalActiveDwellMs: Number(p.totalActiveDwellMs) || 0,
+                totalAwayMs:        Number(p.totalAwayMs) || 0,
+
+                // Behavioural log (Appendix C.4)
+                scrollDepthPct: Number(p.scrollDepthPct) || 0,
+                chartRevisitCount: Number(p.chartRevisitCount) || 0,
+                interactionCount: Number(p.interactionCount) || 0,
+
+                // Integrity & exclusion flags
+                belowTimeFloor,
+                minTrialDurationMs: CONFIG.MIN_TRIAL_DURATION_MS || null,
+                integrityFlags,
+                clientReportedCondition: ev.condition || null,
+                clientReportedAiRecommendation: Number.isFinite(clientAI) ? clientAI : null,
+                isThinkAloud: Boolean(mode?.isThinkAloud),
+
                 protocolVersion: CONFIG.STUDY_VERSION || '4.1.0',
                 applicationVersion: CONFIG.APPLICATION_VERSION || '0.2.0',
               },
@@ -279,7 +411,7 @@ export default async function handler(req, res) {
       // 2. Analytical extraction for completed post-task questionnaires
       if (ev.eventType === 'QUESTIONNAIRE_COMPLETED' && ev.payload) {
         const p = ev.payload.responses || ev.payload
-        if (p.nasaTlx || p.numeracy || p.domainExperience) {
+        if (p.nasaTlx || p.numeracy || p.domainExperience || p.expertReliance) {
           postTaskResponsesToUpsert.push({
             updateOne: {
               filter: { participantId: ev.participantId },
@@ -311,6 +443,11 @@ export default async function handler(req, res) {
                     decisionFrequency: p.domainExperience?.decisionFrequency ?? null,
                     certifications:    p.domainExperience?.certifications ?? null,
                     feedback:          p.domainExperience?.feedback ?? null,
+                  },
+                  expertReliance: {
+                    relianceOnOwnHeuristics: p.expertReliance?.relianceOnOwnHeuristics ?? null,
+                    taskRealism:             p.expertReliance?.taskRealism ?? null,
+                    heuristicDescription:    p.expertReliance?.heuristicDescription ?? null,
                   },
                   protocolVersion: CONFIG.STUDY_VERSION || '4.1.0',
                   applicationVersion: CONFIG.APPLICATION_VERSION || '0.2.0',

@@ -3,9 +3,7 @@ import React from 'react'
 /**
  * Reusable Study Progress Header.
  */
-export function Header({ trialNumber, totalTrials, progress, isPractice, trialStep, condition, surveyMode }) {
-  const activeCondition = condition || surveyMode
-
+export function Header({ trialNumber, totalTrials, progress, isPractice, trialStep }) {
   return (
     <header className="study-header">
       <div className="wordmark">
@@ -30,15 +28,12 @@ export function Header({ trialNumber, totalTrials, progress, isPractice, trialSt
           </div>
         )}
       </div>
-      {activeCondition ? (
-        <span className="mode-badge" aria-label={`Condition ${activeCondition}`}>
-          Condition: {String(activeCondition).toUpperCase()}
-        </span>
-      ) : (
-        <button className="quiet-button" type="button" title="Study support placeholder">
-          Need help?
-        </button>
-      )}
+      {/*
+        The condition label is deliberately NOT shown. It named the participant's
+        experimental cell on every trial screen, which is a manipulation cue in a
+        between-subjects design. It remains in the telemetry and the admin
+        dashboard, where it belongs.
+      */}
     </header>
   )
 }

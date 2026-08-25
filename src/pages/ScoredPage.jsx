@@ -12,6 +12,7 @@ export default function ScoredPage() {
     condition,
     trialNumber, totalTrials, progress, trialStep,
     trial, type, explanation, fetchedAdvice, isFetchingAdvice,
+    adviceError, retryAdvice,
     initialEstimate, setInitialEstimate,
     initialConfidence, setInitialConfidence,
     verificationResponse, setVerificationResponse,
@@ -31,7 +32,6 @@ export default function ScoredPage() {
         progress={progress}
         isPractice={false}
         trialStep={trialStep}
-        condition={condition}
       />
 
       <TrialShell
@@ -42,6 +42,8 @@ export default function ScoredPage() {
         explanation={explanation}
         fetchedAdvice={fetchedAdvice}
         isFetchingAdvice={isFetchingAdvice}
+        adviceError={adviceError}
+        onRetryAdvice={retryAdvice}
         initialEstimate={initialEstimate}
         onInitialEstimate={setInitialEstimate}
         initialConfidence={initialConfidence}

@@ -14,6 +14,7 @@ export default function PracticePage() {
     phase, condition,
     trialNumber, totalTrials, progress, trialStep,
     trial, type, explanation, fetchedAdvice, isFetchingAdvice,
+    adviceError, retryAdvice,
     initialEstimate, setInitialEstimate,
     initialConfidence, setInitialConfidence,
     verificationResponse, setVerificationResponse,
@@ -35,7 +36,6 @@ export default function PracticePage() {
         progress={progress}
         isPractice={true}
         trialStep={trialStep}
-        condition={condition}
       />
 
       {phase === 'practice' && (
@@ -47,6 +47,8 @@ export default function PracticePage() {
           explanation={explanation}
           fetchedAdvice={fetchedAdvice}
           isFetchingAdvice={isFetchingAdvice}
+        adviceError={adviceError}
+        onRetryAdvice={retryAdvice}
           initialEstimate={initialEstimate}
           onInitialEstimate={setInitialEstimate}
           initialConfidence={initialConfidence}

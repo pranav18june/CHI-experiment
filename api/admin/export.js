@@ -4,6 +4,9 @@ import ParticipantTrialPlan from '../../lib/models/ParticipantTrialPlan.js'
 import TrialResult from '../../lib/models/TrialResult.js'
 import PostTaskResponse from '../../lib/models/PostTaskResponse.js'
 import { CONFIG, STOCKOUT_PENALTY_WEIGHT, HOLDING_PENALTY_WEIGHT } from '../../src/config/index.js'
+import { getScenarioById } from '../../src/scenarios/index.js'
+import TelemetryEvent from '../../lib/models/TelemetryEvent.js'
+import { applyCors, rejectUnauthorizedAdmin } from '../../lib/http.js'
 
 function pseudonymizeId(pid) {
   if (!pid) return 'ANON_UNKNOWN'
@@ -34,19 +37,10 @@ function escapeCsvCell(val) {
  * ParticipantTrialPlan, and PostTaskResponse with an immutable manifest header.
  */
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Credentials', 'true')
-  res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Content-Type, x-admin-secret')
-
-  if (req.method === 'OPTIONS') return res.status(200).end()
+  if (applyCors(req, res, { methods: 'GET,OPTIONS,POST' })) return
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method Not Allowed' })
 
-  const secret = process.env.ADMIN_SECRET || 'study-admin'
-  const provided = req.headers['x-admin-secret'] || req.query.secret
-  if (!provided || provided !== secret) {
-    return res.status(401).json({ error: 'Unauthorized' })
-  }
+  if (rejectUnauthorizedAdmin(req, res)) return
 
   try {
     await connectToDatabase()
@@ -84,20 +78,42 @@ export default async function handler(req, res) {
     const postTaskMap = {}
     for (const pt of postTasks) postTaskMap[pt.participantId] = pt
 
+    // Demographics (§6) are captured at consent — before assignment — so they
+    // carry the provisional client id. ParticipantMode.priorParticipantId is the
+    // link back to the canonical id; without this join the demographics never
+    // reach the analyst.
+    const consentEvents = await TelemetryEvent.find({ eventType: 'CONSENT_COMPLETED' })
+      .sort({ timestamp: 1 }).lean()
+    const demographicsMap = {}
+    for (const ce of consentEvents) {
+      if (ce.participantId) demographicsMap[ce.participantId] = ce.payload || {}
+    }
+    // Re-key anything filed under a provisional id onto the canonical one.
+    for (const m of modes) {
+      if (m.priorParticipantId && demographicsMap[m.priorParticipantId] && !demographicsMap[m.participantId]) {
+        demographicsMap[m.participantId] = demographicsMap[m.priorParticipantId]
+      }
+    }
+
     // Join and de-identify records
     const exportRows = trials.map((t) => {
       const pid = t.participantId
       const mode = modeMap[pid] || {}
       const plan = planMap[pid] || { scheduleIndex: null, trialHashLookup: {} }
       const post = postTaskMap[pid] || {}
+      const meta = getScenarioById(t.trialId)?.metadata || {}
+      const demo = demographicsMap[pid] || demographicsMap[mode.priorParticipantId] || {}
 
       return {
         // De-identified identifiers
         anonParticipantId: pseudonymizeId(pid),
-        condition: t.condition || mode.condition || 'c0',
-        participantType: t.participantType || mode.participantType || 'novice',
+        // Never defaulted: a missing condition is a data-integrity fact, not a 'c0'.
+        condition: t.condition ?? mode.condition ?? null,
+        participantType: t.participantType ?? mode.participantType ?? null,
+        assignmentSeq: mode.assignmentSeq ?? null,
         scheduleIndex: plan.scheduleIndex,
         trialId: t.trialId,
+        trialPosition: t.trialPosition ?? null,
         scenarioType: t.scenarioType,
         isPractice: t.isPractice,
 
@@ -117,9 +133,47 @@ export default async function handler(req, res) {
         cognitiveLoad: t.cognitiveLoad,
         verificationResponse: t.verificationResponse,
 
-        // Dwell Times
+        // Dwell Times (Appendix C.4)
+        step1DwellMs: t.step1DwellMs ?? null,
+        step2DwellMs: t.step2DwellMs ?? null,
+        step3DwellMs: t.step3DwellMs ?? null,
         step4DwellMs: t.step4DwellMs,
         totalTrialDwellMs: t.totalTrialDwellMs,
+        step1ActiveDwellMs: t.step1ActiveDwellMs ?? null,
+        step2ActiveDwellMs: t.step2ActiveDwellMs ?? null,
+        step3ActiveDwellMs: t.step3ActiveDwellMs ?? null,
+        step4ActiveDwellMs: t.step4ActiveDwellMs ?? null,
+        totalActiveDwellMs: t.totalActiveDwellMs ?? null,
+        totalAwayMs: t.totalAwayMs ?? null,
+
+        // Behavioural log (Appendix C.4)
+        scrollDepthPct: t.scrollDepthPct ?? null,
+        chartRevisitCount: t.chartRevisitCount ?? null,
+        interactionCount: t.interactionCount ?? null,
+
+        // Pre-registered exclusion support (§9, Appendix C.2)
+        belowTimeFloor: t.belowTimeFloor ?? false,
+        minTrialDurationMs: t.minTrialDurationMs ?? null,
+        isThinkAloud: t.isThinkAloud ?? mode.isThinkAloud ?? false,
+
+        // Integrity audit — empty means the row agreed with the server throughout
+        integrityFlags: Array.isArray(t.integrityFlags) ? t.integrityFlags.join('|') : '',
+        clientReportedCondition: t.clientReportedCondition ?? null,
+        clientReportedAiRecommendation: t.clientReportedAiRecommendation ?? null,
+
+        // §7 sensitivity analysis — the model inputs behind groundTruthOptimal,
+        // so regret can be recomputed under alternative constants.
+        modelDerivation: meta.derivation ?? null,
+        modelReproducible: meta.reproducible ?? null,
+        modelDemandMean: meta.demandMean ?? meta.peakWeekDemandMean ?? meta.demandMeanPerDay ?? null,
+        modelDemandStd: meta.demandStd ?? meta.peakWeekDemandStd ?? null,
+        modelServiceLevel: meta.serviceLevel ?? null,
+        modelZScore: meta.zScore ?? null,
+        modelLeadTimeWeeks: meta.leadTimeWeeks ?? null,
+        modelLeadTimeDays: meta.averageLeadTimeDays ?? null,
+        modelCriticalRatio: meta.criticalRatio ?? null,
+        perturbedParameter: meta.perturbedParameter ?? null,
+        perturbedValue: meta.perturbedValue ?? null,
 
         // Post-Task Measures (De-identified)
         nasaTlxRawAverage: post.nasaTlx?.rawTlxAverage ?? null,
@@ -136,6 +190,18 @@ export default async function handler(req, res) {
         domainPrimaryRole: post.domainExperience?.primaryRole ?? null,
         domainDecisionFrequency: post.domainExperience?.decisionFrequency ?? null,
         domainCertifications: post.domainExperience?.certifications ?? null,
+
+        // Demographics (§6), joined from the consent event
+        demoProgramme: demo.programme ?? null,
+        demoStudyYear: demo.studyYear ?? null,
+        demoPriorSupplyChain: demo.supplyChainExperience ?? null,
+        demoAiUse: demo.aiUse ?? null,
+        demoGender: demo.gender ?? null,
+        demoAge: demo.age ?? null,
+
+        // Expert-only reliance item (Appendix C.3)
+        expertRelianceOnOwnHeuristics: post.expertReliance?.relianceOnOwnHeuristics ?? null,
+        expertTaskRealism: post.expertReliance?.taskRealism ?? null,
 
         // Versioning & Stimulus Traceability
         stimulusContentHash: plan.trialHashLookup[t.trialId] || null,
@@ -155,9 +221,13 @@ export default async function handler(req, res) {
       stockoutPenaltyWeight: STOCKOUT_PENALTY_WEIGHT,
       holdingPenaltyWeight: HOLDING_PENALTY_WEIGHT,
       numeracyInstrument: 'Schwartz-Lipkus-3Item-Plus-SNS',
+      minTrialDurationMs: CONFIG.MIN_TRIAL_DURATION_MS ?? null,
+      flaggedRows: exportRows.filter((r) => r.integrityFlags).length,
+      belowTimeFloorRows: exportRows.filter((r) => r.belowTimeFloor).length,
       totalParticipants: modes.length,
       totalTrialResults: trials.length,
       totalPostTaskResponses: postTasks.length,
+      rowsMissingDemographics: exportRows.filter((r) => r.demoAge == null).length,
       exportRowsCount: exportRows.length,
     }
 

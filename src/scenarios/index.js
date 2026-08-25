@@ -88,13 +88,11 @@ export function getScenarioById(id) {
 export function getExplanation(scenario, conditionKey, isCorrect = false) {
   if (!scenario || conditionKey === 'c0') return null
 
-  if (isCorrect && scenario.correctExplanations) {
-    return scenario.correctExplanations[conditionKey] || null
-  }
-  if (scenario.explanations) {
-    return scenario.explanations[conditionKey] || null
-  }
-  return null
+  // Correct and incorrect trials draw from separate stimulus banks, and never
+  // fall back to each other — serving the opposite version's text would silently
+  // swap the correctness manipulation.
+  const bank = isCorrect ? scenario.correctExplanations : scenario.explanations
+  return bank?.[conditionKey] ?? null
 }
 
 /**

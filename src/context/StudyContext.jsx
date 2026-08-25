@@ -1,10 +1,9 @@
-import React, { createContext, useContext, useState, useMemo, useEffect, useCallback } from 'react'
+import React, { createContext, useContext, useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { trials, practiceTrials, studyTypes } from '../studyData.js'
 import telemetry, { EventType } from '../telemetry.js'
 import CONFIG from '../config/index.js'
 import { normalizeNumericInput } from '../services/validationService.js'
-import { generateParticipantTrialPlan } from '../utils/counterbalance.js'
 import { getScenarioById, getExplanation as lookupExplanation } from '../scenarios/index.js'
 
 // ── Storage Keys ──────────────────────────────────────────────────────────────
@@ -14,7 +13,22 @@ const MAX_RESUME_WINDOW_MS = 24 * 60 * 60 * 1000 // 24-hour single-session resum
 // ── 2×4 Factorial Design Constants ───────────────────────────────────────────
 export const CONDITIONS = ['c0', 'c1', 'c2', 'c3']
 export const PARTICIPANT_TYPES = ['novice', 'expert']
-const CONDITION_COUNTER_KEY = 'study-condition-counter-v2' // local 2x4 offline counter
+
+/**
+ * Researcher-only URL overrides (?condition=, ?trial=).
+ *
+ * These override the between-subjects manipulation, so they are gated behind an
+ * explicit build flag and are OFF in the participant-facing build. Any session
+ * that uses one is stamped `previewOverride` so it can never be mistaken for
+ * collected data.
+ */
+const ALLOW_URL_OVERRIDES = import.meta.env?.VITE_ALLOW_URL_OVERRIDES === 'true'
+
+// Server assignment must succeed. These govern how hard the client tries before
+// telling the participant something is wrong — it never invents an assignment.
+// Trials themselves need no network: they render from the plan issued here.
+const ASSIGNMENT_TIMEOUT_MS = 12000
+const ASSIGNMENT_MAX_ATTEMPTS = 4
 
 /**
  * Maps each study phase to its canonical URL path.
@@ -51,48 +65,26 @@ export const PATH_TO_PHASE = {
   '/excluded':    'excluded',
 }
 
-const SCHEDULE_KEYS = ['s0', 's1', 's2', 's3', 's4', 's5', 's6', 's7']
-
 /**
- * Client-side offline fallback balancer across all 4 conditions (c0–c3)
- * and 8 Latin-square correctness schedules (s0–s7) independently within
- * each expertise group (novice vs. expert) via min-count selection.
+ * Which phases may legitimately render each route (Protocol §5.11 ordering).
+ * Enforced by GuardedRoute; participants cannot skip forward by URL or reach a
+ * completed phase again with the back button.
  */
-function assignConditionFallback(participantType = 'novice') {
-  const group = participantType === 'expert' ? 'expert' : 'novice'
-  try {
-    const raw = localStorage.getItem(CONDITION_COUNTER_KEY)
-    const counts = raw ? JSON.parse(raw) : {
-      novice: { c0: 0, c1: 0, c2: 0, c3: 0, s0: 0, s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0, s7: 0 },
-      expert: { c0: 0, c1: 0, c2: 0, c3: 0, s0: 0, s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0, s7: 0 },
-    }
-    if (!counts[group]) {
-      counts[group] = { c0: 0, c1: 0, c2: 0, c3: 0, s0: 0, s1: 0, s2: 0, s3: 0, s4: 0, s5: 0, s6: 0, s7: 0 }
-    }
-    const groupCounts = counts[group]
-
-    // Condition min-count
-    const minCondCount = Math.min(...CONDITIONS.map((c) => groupCounts[c] ?? 0))
-    const tiedConds = CONDITIONS.filter((c) => (groupCounts[c] ?? 0) === minCondCount)
-    const chosenCond = tiedConds[Math.floor(Math.random() * tiedConds.length)]
-    counts[group][chosenCond] = (groupCounts[chosenCond] ?? 0) + 1
-
-    // Schedule min-count
-    const minSchedCount = Math.min(...SCHEDULE_KEYS.map((s) => groupCounts[s] ?? 0))
-    const tiedScheds = SCHEDULE_KEYS.filter((s) => (groupCounts[s] ?? 0) === minSchedCount)
-    const chosenSchedKey = tiedScheds[Math.floor(Math.random() * tiedScheds.length)]
-    const scheduleIndex = parseInt(chosenSchedKey.replace('s', ''), 10)
-    counts[group][chosenSchedKey] = (groupCounts[chosenSchedKey] ?? 0) + 1
-
-    localStorage.setItem(CONDITION_COUNTER_KEY, JSON.stringify(counts))
-    return { condition: chosenCond, scheduleIndex }
-  } catch {
-    return {
-      condition: CONDITIONS[Math.floor(Math.random() * CONDITIONS.length)],
-      scheduleIndex: Math.floor(Math.random() * 8),
-    }
-  }
+export const ROUTE_ALLOWED_PHASES = {
+  '/':            ['consent'],
+  '/type':        ['participant-type'],
+  '/training':    ['training'],
+  '/walkthrough': ['walkthrough'],
+  '/check':       ['check'],
+  '/practice':    ['practice', 'practice-feedback'],
+  '/scored':      ['scored'],
+  '/post-task':   ['post-task'],
+  '/debrief':     ['debrief'],
+  '/complete':    ['complete'],
+  '/excluded':    ['excluded'],
 }
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 // ── Context Definition ────────────────────────────────────────────────────────
 const StudyContext = createContext(null)
@@ -110,7 +102,9 @@ export function StudyProvider({ children }) {
   const location = useLocation()
 
   // ── Session identity ───────────────────────────────────────────────────────
-  const [participantId] = useState(() =>
+  // Provisional until assignment: the server issues the canonical id and the
+  // client adopts it (see handleParticipantTypeSelect).
+  const [participantId, setParticipantId] = useState(() =>
     telemetry.sessionMetadata.participantId || telemetry._loadOrInitSession().participantId
   )
   const [participantType, setParticipantType] = useState('novice')
@@ -119,9 +113,19 @@ export function StudyProvider({ children }) {
   const [comprehensionPassed, setComprehensionPassed] = useState(false)
   const [isExcluded, setIsExcluded] = useState(false)
 
+  // ── Assignment lifecycle ───────────────────────────────────────────────────
+  const [isAssigning, setIsAssigning] = useState(false)
+  const [assignmentError, setAssignmentError] = useState(null)
+  const [adviceError, setAdviceError] = useState(null)
+
   const queryParams = new URLSearchParams(location.search)
-  const requestedCondition = queryParams.get('condition')
-  const requestedTrialId = queryParams.get('trial') || queryParams.get('trialId')
+  const requestedCondition = ALLOW_URL_OVERRIDES ? queryParams.get('condition') : null
+  const requestedTrialId = ALLOW_URL_OVERRIDES ? (queryParams.get('trial') || queryParams.get('trialId')) : null
+
+  // Appendix C.2 — think-aloud sessions are flagged at recruitment so their
+  // timing measures can be excluded from the dwell analyses.
+  const isThinkAloud = queryParams.get('thinkAloud') === '1'
+
   const availableTrials = location.pathname === '/practice' ? practiceTrials : trials
   const requestedTrialNumber = Number.parseInt(requestedTrialId, 10)
   const requestedTrialIndex = Number.isInteger(requestedTrialNumber) && requestedTrialNumber > 0
@@ -130,12 +134,11 @@ export function StudyProvider({ children }) {
   const hasValidDirectTrial = requestedTrialIndex >= 0 && requestedTrialIndex < availableTrials.length
   const directTrialIndex = hasValidDirectTrial ? requestedTrialIndex : 0
   const hasDirectTrial = (location.pathname === '/practice' || location.pathname === '/scored') && hasValidDirectTrial
+  const isPreviewOverride = ALLOW_URL_OVERRIDES && (hasDirectTrial || CONDITIONS.includes(requestedCondition))
 
-  // ── Condition (c0 / c1 / c2 / c3) — assigned at participant-type stage ────
+  // ── Condition (c0 / c1 / c2 / c3) — assigned by the server at /type ────────
   const [condition, setCondition] = useState(() => {
-    if ((location.pathname === '/scored' || location.pathname === '/practice') && CONDITIONS.includes(requestedCondition)) {
-      return requestedCondition
-    }
+    if (ALLOW_URL_OVERRIDES && CONDITIONS.includes(requestedCondition)) return requestedCondition
     try {
       const saved = localStorage.getItem(AUTOSAVE_STORAGE_KEY)
       if (saved) {
@@ -145,10 +148,10 @@ export function StudyProvider({ children }) {
         }
       }
     } catch {}
-    return 'c0' // default fallback for direct route preview
+    return null // null until the server assigns — never a default cell
   })
 
-  // ── Pre-assigned Counterbalanced 12-Trial Plan ─────────────────────────────
+  // ── Server-assigned counterbalanced 12-trial plan ──────────────────────────
   const [trialPlan, setTrialPlan] = useState(() => {
     try {
       const saved = localStorage.getItem(AUTOSAVE_STORAGE_KEY)
@@ -159,40 +162,44 @@ export function StudyProvider({ children }) {
         }
       }
     } catch {}
-    return generateParticipantTrialPlan(0, getScenarioById)
+    return null
   })
 
-  // ── Phase derived directly from current URL path ────────────────────────────
-  const currentPathPhase = PATH_TO_PHASE[location.pathname] || 'consent'
-  const [phase, setPhaseState] = useState(currentPathPhase)
+  // ── Phase is authoritative state, NOT derived from the URL ─────────────────
+  //
+  // Deriving phase from location.pathname made the route guard meaningless:
+  // typing /scored set phase to 'scored', so the guard then found the phase
+  // allowed and rendered the scored block. Phase advances only through
+  // setPhase(); the URL follows it, and GuardedRoute redirects anything else.
+  const [phase, setPhaseState] = useState(() => {
+    if (ALLOW_URL_OVERRIDES && PATH_TO_PHASE[location.pathname]) {
+      return PATH_TO_PHASE[location.pathname] // researcher preview only
+    }
+    try {
+      const saved = localStorage.getItem(AUTOSAVE_STORAGE_KEY)
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        const elapsed = Date.now() - (parsed.savedAt || 0)
+        if (elapsed < MAX_RESUME_WINDOW_MS && parsed.phase && PHASE_TO_PATH[parsed.phase]) {
+          return parsed.phase
+        }
+      }
+    } catch {}
+    return 'consent'
+  })
 
-  // Sync phase with URL when URL changes & enforce comprehension gating
   useEffect(() => {
-    const matched = PATH_TO_PHASE[location.pathname]
-
-    // Direct review URLs can select a condition without running participant assignment.
-    if ((location.pathname === '/scored' || location.pathname === '/practice') && CONDITIONS.includes(requestedCondition) && condition !== requestedCondition) {
+    // Researcher preview may select a condition without running assignment.
+    if (ALLOW_URL_OVERRIDES && CONDITIONS.includes(requestedCondition) && condition !== requestedCondition) {
       setCondition(requestedCondition)
       telemetry.setSessionIdentity({ condition: requestedCondition })
     }
 
-    // Gating 1: If excluded, lock to /excluded
-    if (isExcluded && location.pathname !== '/scored') {
-      if (location.pathname !== '/excluded') {
-        navigate('/excluded', { replace: true })
-      }
-      return
+    // Exclusion lock: a pre-registered exclusion is terminal. No route escapes it.
+    if (isExcluded && location.pathname !== '/excluded') {
+      navigate('/excluded', { replace: true })
     }
-
-    if (matched && matched !== phase) {
-      setPhaseState(matched)
-      if (matched === 'scored') {
-        setIsPractice(false)
-      } else if (matched === 'practice') {
-        setIsPractice(true)
-      }
-    }
-  }, [location.pathname, location.search, isExcluded, comprehensionPassed, participantType, phase, condition, navigate])
+  }, [location.pathname, location.search, isExcluded, condition, navigate, requestedCondition])
 
   const setPhase = useCallback((nextPhase) => {
     setPhaseState(nextPhase)
@@ -208,7 +215,7 @@ export function StudyProvider({ children }) {
   }, [navigate, location.pathname])
 
   // ── Trial tracking ─────────────────────────────────────────────────────────
-  const [isPractice, setIsPractice] = useState(() => location.pathname === '/practice')
+  const [isPractice, setIsPractice] = useState(() => phase === 'practice' || phase === 'practice-feedback')
   const [trialIndex, setTrialIndex] = useState(() => (
     requestedTrialId ? directTrialIndex : 0
   ))
@@ -231,7 +238,20 @@ export function StudyProvider({ children }) {
   const [startedAt, setStartedAt] = useState(Date.now())
 
   // ── Derived values ─────────────────────────────────────────────────────────
-  const currentTrials = isPractice ? practiceTrials : trials
+  //
+  // Scored trials follow the participant's own presentation order from the
+  // server-issued plan (§5.11). Walking the static `trials` array instead would
+  // show every participant the same fixed sequence, which is exactly the
+  // confound the counterbalancing removes.
+  const orderedScoredTrials = useMemo(() => {
+    if (!trialPlan || !Array.isArray(trialPlan) || trialPlan.length === 0) return trials
+    const resolved = trialPlan
+      .map((item) => getScenarioById(item.trialId))
+      .filter(Boolean)
+    return resolved.length === trialPlan.length ? resolved : trials
+  }, [trialPlan])
+
+  const currentTrials = isPractice ? practiceTrials : orderedScoredTrials
   const trial = currentTrials[trialIndex] ?? currentTrials[0] ?? null
   const type = trial ? (studyTypes[trial.scenarioType || trial.type] || trial) : null
   const totalTrials = currentTrials.length
@@ -241,11 +261,66 @@ export function StudyProvider({ children }) {
 
   const explanation = useMemo(() => {
     if (fetchedExplanation !== null) return fetchedExplanation
-    if (!trial || condition === 'c0') return null
+    if (!trial || condition === 'c0' || !condition) return null
+    // Scored trials take their explanation from the server-issued plan only.
+    // Falling back to a local lookup here would have to guess correctness, and
+    // guessing wrong serves the opposite version's text — the exact
+    // cross-correctness swap the separate stimulus banks exist to prevent.
+    if (!isPractice) return null
     return lookupExplanation(trial, condition, currentIsCorrect ?? false)
-  }, [condition, trial, fetchedExplanation, currentIsCorrect])
+  }, [condition, trial, fetchedExplanation, currentIsCorrect, isPractice])
+
+  // ── Chart preloading ───────────────────────────────────────────────────────
+  //
+  // The chart is the primary stimulus and each PNG is ~160 KB (1.9 MB across the
+  // bank). Fetched lazily at trial render, its arrival lands inside the Step-1
+  // dwell window: the timer runs while the stimulus is still downloading, so
+  // dwell picks up network latency that varies by connection, and on a slow link
+  // a participant can commit an estimate before the chart paints. Warming the
+  // cache during training/practice — where nothing is timed — moves that cost
+  // off the measured path.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (!['training', 'walkthrough', 'check', 'practice', 'practice-feedback'].includes(phase)) return
+
+    const sources = (trialPlan && trialPlan.length
+      ? trialPlan.map((item) => getScenarioById(item.trialId)?.chartImage)
+      : trials.map((t) => t.chartImage)
+    ).filter(Boolean)
+
+    const images = sources.map((src) => {
+      const img = new Image()
+      img.decoding = 'async'
+      img.src = src
+      return img
+    })
+    return () => { for (const img of images) img.src = '' }
+  }, [phase, trialPlan])
+
+  // ── Session start (Protocol §6 lifecycle) ─────────────────────────────────
+  const sessionStartRecorded = useRef(false)
+  useEffect(() => {
+    if (sessionStartRecorded.current) return
+    sessionStartRecorded.current = true
+    try {
+      telemetry.recordSessionStart(participantId)
+    } catch (err) {
+      console.error('[telemetry] session start failed', err)
+    }
+  }, [participantId])
 
   // ── Autosave recovery (only restores if on root '/' and active session exists) ─
+  //
+  // The write effect below must not run until the restored values have actually
+  // landed. Both effects fire in the same mount commit, and the restore's
+  // setState calls only take effect on the NEXT render — so a write gated on a
+  // synchronous ref still persists the DEFAULT state over the restored session.
+  // This has to be state: flipping it forces a re-render, and only then does the
+  // write see the restored values.
+  //
+  // The bug it prevents: an expert who refreshed mid-study was written back as a
+  // novice, which hid the expert-only post-task section (Appendix C.3).
+  const [hasRestored, setHasRestored] = useState(false)
   useEffect(() => {
     try {
       const saved = localStorage.getItem(AUTOSAVE_STORAGE_KEY)
@@ -264,17 +339,23 @@ export function StudyProvider({ children }) {
           if (parsed.initialEstimate) setInitialEstimate(parsed.initialEstimate)
           if (parsed.initialConfidence) setInitialConfidence(parsed.initialConfidence)
 
-          if (location.pathname === '/' && parsed.phase && parsed.phase !== 'consent' && parsed.phase !== 'complete') {
-            setPhaseState(parsed.phase)
-            const path = PHASE_TO_PATH[parsed.phase]
-            if (path) navigate(path, { replace: true })
+          // Phase itself was restored in the useState initialiser above; here we
+          // only align the URL with it — and only for participant routes. /admin
+          // is not part of the study flow, so a stale participant session in the
+          // same browser must not bounce a researcher out of the dashboard.
+          const path = PHASE_TO_PATH[parsed.phase]
+          const onStudyRoute = PATH_TO_PHASE[location.pathname] !== undefined
+          if (path && onStudyRoute && parsed.phase !== 'complete' && location.pathname !== path) {
+            navigate(path, { replace: true })
           }
         }
       }
     } catch {}
+    setHasRestored(true)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    if (!hasRestored) return
     try {
       localStorage.setItem(AUTOSAVE_STORAGE_KEY, JSON.stringify({
         participantId, participantType, phase, condition, trialPlan,
@@ -283,7 +364,7 @@ export function StudyProvider({ children }) {
         savedAt: Date.now(),
       }))
     } catch {}
-  }, [participantId, participantType, phase, condition, trialPlan,
+  }, [hasRestored, participantId, participantType, phase, condition, trialPlan,
       comprehensionPassed, isExcluded,
       isPractice, trialIndex, trialStep, initialEstimate, initialConfidence])
 
@@ -298,15 +379,18 @@ export function StudyProvider({ children }) {
       setFetchedExplanation(null)
       setCurrentIsCorrect(null)
       setCurrentErrorDirection(null)
+        const planItem = trialPlan?.find((t) => t.trialId === trial.id) || null
       telemetry.recordTrialStart({
         trialId: trial.id,
         scenarioType: trial.scenarioType || trial.type,
         isPractice,
         orderIndex: trialIndex + 1,
         scenario: trial,
+        isCorrect: isPractice ? plannedPracticeCorrectness(trial) : planItem?.isCorrect ?? null,
+        errorDirection: isPractice ? practiceErrorDirection(trial) : planItem?.errorDirection ?? null,
       })
     }
-  }, [phase, isPractice, trialIndex, trialStep, trial])
+  }, [phase, isPractice, trialIndex, trialStep, trial]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   function resetStepData() {
@@ -320,43 +404,81 @@ export function StudyProvider({ children }) {
     setFetchedExplanation(null)
     setCurrentIsCorrect(null)
     setCurrentErrorDirection(null)
+    setAdviceError(null)
   }
 
   /**
-   * Fetches condition assignment and 12-trial plan balanced within the participant's own expertise group.
+   * Requests the participant's cell and 12-trial plan from the server.
+   *
+   * There is deliberately no local fallback. A per-device counter cannot balance
+   * anything across participants, so assigning locally would silently unbalance
+   * the 2×4 design with no record that it happened. On failure the participant
+   * waits and retries; the study never proceeds on a guessed assignment.
    */
-  async function fetchConditionForGroup(pid, groupType) {
-    try {
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 1500)
+  async function requestAssignment(groupType) {
+    setIsAssigning(true)
+    setAssignmentError(null)
 
-      const response = await fetch('/api/assign-mode', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ participantId: pid, participantType: groupType }),
-        signal: controller.signal,
-      })
-      clearTimeout(timeoutId)
+    for (let attempt = 1; attempt <= ASSIGNMENT_MAX_ATTEMPTS; attempt++) {
+      try {
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), ASSIGNMENT_TIMEOUT_MS)
 
-      if (response.ok) {
-        const data = await response.json()
-        const assignedCond = data.condition || data.surveyMode
-        if (CONDITIONS.includes(assignedCond)) {
-          setCondition(assignedCond)
-          if (data.trialPlan && Array.isArray(data.trialPlan)) {
+        const response = await fetch('/api/assign-mode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            participantType: groupType,
+            priorParticipantId: participantId,
+            isThinkAloud,
+          }),
+          signal: controller.signal,
+        })
+        clearTimeout(timeoutId)
+
+        if (response.ok) {
+          const data = await response.json()
+          const assignedCond = data.condition || data.surveyMode
+          if (CONDITIONS.includes(assignedCond) && Array.isArray(data.trialPlan)) {
+            const canonicalId = telemetry.adoptServerParticipantId(data.participantId) || participantId
+            setParticipantId(canonicalId)
+            setCondition(assignedCond)
             setTrialPlan(data.trialPlan)
+            telemetry.setSessionIdentity({ condition: assignedCond, participantType: groupType })
+            setIsAssigning(false)
+            return { condition: assignedCond, trialPlan: data.trialPlan }
           }
-          telemetry.setSessionIdentity({ condition: assignedCond, participantType: groupType })
-          return assignedCond
         }
+      } catch {
+        // fall through to retry
       }
-    } catch {}
-    const fallback = assignConditionFallback(groupType)
-    setCondition(fallback.condition)
-    const localPlan = generateParticipantTrialPlan(fallback.scheduleIndex, getScenarioById)
-    setTrialPlan(localPlan)
-    telemetry.setSessionIdentity({ condition: fallback.condition, participantType: groupType })
-    return fallback.condition
+
+      if (attempt < ASSIGNMENT_MAX_ATTEMPTS) {
+        await sleep(Math.min(4000, 500 * 2 ** (attempt - 1)))
+      }
+    }
+
+    setIsAssigning(false)
+    setAssignmentError(
+      'We could not reach the study server to set up your session. Please check your connection and try again.'
+    )
+    return null
+  }
+
+  // Practice correctness comes from the scenario definition (§5.8): practice is
+  // where a wrong AI can be shown safely, because feedback follows.
+  function plannedPracticeCorrectness(practiceTrial) {
+    if (!practiceTrial || typeof practiceTrial.recommendation !== 'object') return true
+    const { active, correct, optimal } = practiceTrial.recommendation
+    const shown = active ?? correct
+    return shown === (correct ?? optimal)
+  }
+
+  function practiceErrorDirection(practiceTrial) {
+    if (plannedPracticeCorrectness(practiceTrial)) return 'na'
+    const { active, correct, optimal } = practiceTrial.recommendation
+    const truth = correct ?? optimal
+    return (active ?? truth) > truth ? 'high' : 'low'
   }
 
   // ── Handlers ───────────────────────────────────────────────────────────────
@@ -367,16 +489,22 @@ export function StudyProvider({ children }) {
     setPhase('participant-type')
   }
 
-  // Step 2: Expertise selected on '/type' -> Assign condition balanced WITHIN group
+  // Step 2: Expertise selected on '/type' -> Server assigns the cell.
   async function handleParticipantTypeSelect(selectedType) {
     setParticipantType(selectedType)
     if (selectedType === 'expert') {
-      setComprehensionPassed(true) // Experts bypass novice check
+      setComprehensionPassed(true) // Experts bypass the novice check
     }
-    // 2x4 balancing & counterbalanced trial plan assignment
-    const assignedCondition = await fetchConditionForGroup(participantId, selectedType)
-    telemetry.recordParticipantType(selectedType, assignedCondition)
+
+    const assignment = await requestAssignment(selectedType)
+    if (!assignment) return // stay on /type; the page surfaces the retry
+
+    telemetry.recordParticipantType(selectedType, assignment.condition)
     setPhase(selectedType === 'novice' ? 'training' : 'walkthrough')
+  }
+
+  function retryAssignment() {
+    return handleParticipantTypeSelect(participantType)
   }
 
   function handleTrainingComplete() {
@@ -395,7 +523,8 @@ export function StudyProvider({ children }) {
     telemetry.recordEvent(EventType.COMPREHENSION_CHECK_PASSED, {
       attempt: results.attempt,
       score: results.score,
-      total: 4,
+      total: results.total,
+      threshold: results.threshold,
       answers: results.answers,
     })
     beginPractice()
@@ -405,7 +534,8 @@ export function StudyProvider({ children }) {
     telemetry.recordEvent(EventType.COMPREHENSION_CHECK_FAILED, {
       attempt: results.attempt,
       score: results.score,
-      total: 4,
+      total: results.total,
+      threshold: results.threshold,
       answers: results.answers,
     })
   }
@@ -416,7 +546,8 @@ export function StudyProvider({ children }) {
       reason: 'COMPREHENSION_CHECK_FAILED_TWICE',
       attempt: 2,
       finalScore: results.score,
-      total: 4,
+      total: results.total,
+      threshold: results.threshold,
       answers: results.answers,
     })
     setPhase('excluded')
@@ -448,67 +579,73 @@ export function StudyProvider({ children }) {
     if (Number.isNaN(normalizedVal) || initialConfidence === null) return
 
     const dwellMs = Date.now() - startedAt
-    telemetry.recordStep1InitialEstimate({
-      trialId: trial.id, isPractice, initialEstimate: normalizedVal, initialConfidence, dwellMs,
-    })
+    // Telemetry must never block progression: a logging fault costs one event,
+    // not the participant's session.
+    try {
+      telemetry.recordStep1InitialEstimate({
+        trialId: trial.id, isPractice, initialEstimate: normalizedVal, initialConfidence, dwellMs,
+      })
+    } catch (err) {
+      console.error('[telemetry] step 1 record failed', err)
+    }
     setInitialEstimate(String(normalizedVal))
     setIsFetchingAdvice(true)
     setTrialStep(2)
     setStartedAt(Date.now())
 
-    // Practice trials resolve instantly in memory (0ms network delay)
+    // Practice trials resolve in memory, honouring the scenario's own
+    // correctness so the practice round can demonstrate a wrong AI (§5.8).
     if (isPractice) {
+      const isCorr = plannedPracticeCorrectness(trial)
       const recAmount = typeof trial.recommendation === 'object'
-        ? (trial.recommendation.correct ?? trial.recommendation.optimal)
+        ? (isCorr
+            ? (trial.recommendation.correct ?? trial.recommendation.optimal)
+            : (trial.recommendation.incorrect ?? trial.recommendation.active))
         : trial.recommendation
       setFetchedAdvice(recAmount)
-      setCurrentIsCorrect(true)
-      setCurrentErrorDirection('na')
-      setFetchedExplanation(lookupExplanation(trial, condition, true))
+      setCurrentIsCorrect(isCorr)
+      setCurrentErrorDirection(practiceErrorDirection(trial))
+      setFetchedExplanation(lookupExplanation(trial, condition, isCorr))
       setIsFetchingAdvice(false)
       return
     }
 
-    try {
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 1500)
-
-      const response = await fetch(
-        `/api/telemetry?trialId=${encodeURIComponent(trial.id)}&condition=${encodeURIComponent(condition)}&participantId=${encodeURIComponent(participantId)}`,
-        { signal: controller.signal }
-      )
-      clearTimeout(timeoutId)
-
-      if (response.ok) {
-        const data = await response.json()
-        setFetchedAdvice(data.recommendation)
-        setFetchedExplanation(data.explanation)
-        setCurrentIsCorrect(data.isCorrect)
-        setCurrentErrorDirection(data.errorDirection)
-      } else {
-        throw new Error('API non-200')
-      }
-    } catch {
-      const planItem = !isPractice && trialPlan ? trialPlan.find((t) => t.trialId === trial.id) : null
-      const isCorr = isPractice ? true : (planItem ? planItem.isCorrect : false)
-      const errDir = isPractice ? 'na' : (planItem ? planItem.errorDirection : 'high')
-      const fallback = isCorr
-        ? (trial.recommendation.correct ?? trial.recommendation.optimal)
-        : (trial.recommendation.incorrect ?? trial.recommendation.active)
-      setFetchedAdvice(fallback)
-      setCurrentIsCorrect(isCorr)
-      setCurrentErrorDirection(errDir)
-      setFetchedExplanation(lookupExplanation(trial, condition, isCorr))
-    } finally {
+    // Scored trials render from the server-issued plan the client already holds.
+    //
+    // There was previously a per-trial GET here that re-fetched exactly this
+    // data: 12 extra round trips per participant, each a lambda invocation and a
+    // Mongo query at peak load, adding ~1s of dead time to the critical path and
+    // one more way for a trial to fail. The plan is issued and validated by the
+    // server at assignment, so reading it from cache is not a fallback — it is
+    // the same authority, just without the round trip. Correctness and ground
+    // truth are resolved server-side at write time (see the D-4 change), so the
+    // browser never needs them.
+    const planItem = trialPlan?.find((t) => t.trialId === trial.id) || null
+    if (!planItem) {
+      setAdviceError('We could not load this decision. Please check your connection and retry.')
       setIsFetchingAdvice(false)
+      return
     }
+
+    setFetchedAdvice(planItem.recommendation)
+    setFetchedExplanation(planItem.explanation ?? null)
+    setIsFetchingAdvice(false)
+  }
+
+  function retryAdvice() {
+    setAdviceError(null)
+    setTrialStep(1)
   }
 
   function acknowledgeAI() {
     const dwellMs = Date.now() - startedAt
-    telemetry.recordStep2AIReveal({
-      trialId: trial.id, isPractice, condition, explanationViewed: condition !== 'c0', dwellMs,
-    })
+    try {
+      telemetry.recordStep2AIReveal({
+        trialId: trial.id, isPractice, condition, explanationViewed: condition !== 'c0', dwellMs,
+      })
+    } catch (err) {
+      console.error('[telemetry] step 2 record failed', err)
+    }
     setTrialStep(3)
     setStartedAt(Date.now())
   }
@@ -516,7 +653,11 @@ export function StudyProvider({ children }) {
   function submitVerification() {
     if (!verificationResponse) return
     const dwellMs = Date.now() - startedAt
-    telemetry.recordStep3Verification({ trialId: trial.id, isPractice, verificationResponse, dwellMs })
+    try {
+      telemetry.recordStep3Verification({ trialId: trial.id, isPractice, verificationResponse, dwellMs })
+    } catch (err) {
+      console.error('[telemetry] step 3 record failed', err)
+    }
     setTrialStep(4)
     setStartedAt(Date.now())
   }
@@ -527,21 +668,25 @@ export function StudyProvider({ children }) {
     if (Number.isNaN(normalizedVal) || !finalConfidence || !cognitiveLoad) return
 
     const step4DwellMs = Date.now() - startedAt
-    telemetry.recordStep4FinalEstimate({
-      trialId: trial.id,
-      scenario: trial,
-      isPractice,
-      aiRecommendation: fetchedAdvice,
-      isCorrect: currentIsCorrect,
-      errorDirection: currentErrorDirection,
-      groundTruthOptimal: trial.groundTruthOptimal ?? (trial.recommendation?.correct ?? trial.recommendation?.optimal),
-      initialEstimate: normalizeNumericInput(initialEstimate),
-      finalEstimate: normalizedVal,
-      finalConfidence,
-      cognitiveLoad,
-      verificationResponse,
-      dwellMs: step4DwellMs,
-    })
+    try {
+      telemetry.recordStep4FinalEstimate({
+        trialId: trial.id,
+        scenario: trial,
+        isPractice,
+        aiRecommendation: fetchedAdvice,
+        isCorrect: currentIsCorrect,
+        errorDirection: currentErrorDirection,
+        groundTruthOptimal: trial.groundTruthOptimal ?? (trial.recommendation?.correct ?? trial.recommendation?.optimal),
+        initialEstimate: normalizeNumericInput(initialEstimate),
+        finalEstimate: normalizedVal,
+        finalConfidence,
+        cognitiveLoad,
+        verificationResponse,
+        dwellMs: step4DwellMs,
+      })
+    } catch (err) {
+      console.error('[telemetry] step 4 record failed', err)
+    }
     setFinalEstimate(String(normalizedVal))
 
     if (isPractice) {
@@ -553,7 +698,8 @@ export function StudyProvider({ children }) {
 
   function advanceScoredTrial() {
     if (isLastTrial) {
-      try { localStorage.removeItem(AUTOSAVE_STORAGE_KEY) } catch {}
+      // Autosave is NOT cleared here — the post-task battery still has to be
+      // completed, and losing it would discard a finished 12-trial block.
       setPhase('post-task')
     } else {
       setTrialIndex((i) => i + 1)
@@ -593,13 +739,19 @@ export function StudyProvider({ children }) {
 
   function handlePostTaskComplete(responses) {
     telemetry.recordQuestionnaire('POST_TASK', responses)
+    // The battery is in; the session can no longer be resumed mid-trial.
+    try { localStorage.removeItem(AUTOSAVE_STORAGE_KEY) } catch {}
     setPhase('debrief')
   }
 
-  function resetExclusionAndProceed() {
-    setIsExcluded(false)
-    setComprehensionPassed(true)
-    beginPractice()
+  function handleDebriefComplete() {
+    try {
+      telemetry.recordDebriefViewed()
+      telemetry.recordSessionComplete()
+    } catch (err) {
+      console.error('[telemetry] session completion failed', err)
+    }
+    setPhase('complete')
   }
 
   function restartSession() {
@@ -615,8 +767,11 @@ export function StudyProvider({ children }) {
   const value = {
     participantId, participantType, condition, trialPlan,
     comprehensionPassed, isExcluded,
+    isThinkAloud, isPreviewOverride,
     surveyMode: condition,
     phase, setPhase,
+    isAssigning, assignmentError, retryAssignment,
+    adviceError, retryAdvice,
     isPractice, trialIndex, trialStep,
     trial, type, totalTrials, trialNumber, isLastTrial, progress,
     explanation, fetchedAdvice, isFetchingAdvice,
@@ -641,7 +796,7 @@ export function StudyProvider({ children }) {
     submitFinalEstimate,
     handleNextPracticeTrial,
     handlePostTaskComplete,
-    resetExclusionAndProceed,
+    handleDebriefComplete,
     restartSession,
   }
 

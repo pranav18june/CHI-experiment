@@ -6,11 +6,14 @@
  *   - Weight of Advice (WoA) calculation
  *   - Verification accuracy / Error detection analysis
  *   - Linear mixed-effects modeling (LMM / ANOVA)
- *   - Dwell-time / Dwell-step analytics
+ *   - Per-step dwell, scroll depth, chart revisits, interaction counts (Appendix C.4)
  *   - Novice vs. Expert behavioural comparisons
- *   - Offline event queueing & retry transport
+ *   - Offline event queueing & batched retry transport
  *
- * Supports future statistical analysis without requiring any frontend modifications.
+ * Transport (Protocol run at ~500 concurrent participants):
+ *   Events are queued locally and flushed in batches on an interval, on page
+ *   hide via sendBeacon, and immediately for a small set of critical events.
+ *   One HTTP request per event does not survive the target concurrency.
  */
 
 // ── Environment & Config ──────────────────────────────────────────────────────
@@ -18,16 +21,23 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_S
 const APPLICATION_VERSION = '0.2.0'
 const STUDY_VERSION = '4.1.0' // Study Protocol v4.1
 
-// TODO_STUDY_VERSIONING: Maintain compatibility with protocol updates via environment or config manifest.
-// TODO_BACKEND_AUTH: Add authorization headers / HMAC signing token for backend API endpoints.
-// TODO_SESSION_RECOVERY_POLICY: Define exact session re-hydration behavior on browser refresh.
-// TODO_EVENT_RETENTION: Define client-side queue flush & max retention policies.
-// TODO_ANALYTICS_EXPORT: Provide CSV/JSON export helper for offline research deployments.
+// Batching policy
+const FLUSH_INTERVAL_MS = 5000   // periodic batch flush
+const MAX_BATCH_SIZE = 40        // envelopes per request
+const MAX_QUEUE_LENGTH = 2000    // hard cap; oldest non-critical events shed first
+
+// Events that must not wait for the next interval — they carry the primary DVs
+// or mark an irreversible lifecycle transition.
+const CRITICAL_EVENTS = new Set([
+  'FINAL_ESTIMATE_SUBMITTED',
+  'QUESTIONNAIRE_COMPLETED',
+  'PARTICIPANT_EXCLUDED',
+  'SESSION_COMPLETED',
+])
 
 // ── Local Storage Keys ────────────────────────────────────────────────────────
 const QUEUE_STORAGE_KEY = 'study-telemetry-queue-v2'
 const SESSION_STORAGE_KEY = 'study-session-metadata-v2'
-const STATE_RECOVERY_KEY = 'study-state-recovery-v2'
 
 // ── Helper: Random UUID / Participant ID Generation ───────────────────────────
 export function createParticipantId() {
@@ -85,21 +95,40 @@ export const EventType = {
   OFFLINE_QUEUE: 'OFFLINE_QUEUE',
 }
 
+function emptyTrialMetrics() {
+  return {
+    scrollDepthPct: 0,
+    chartRevisitCount: 0,
+    interactionCount: 0,
+    focusChanges: 0,
+    windowBlurEvents: 0,
+    windowResumeEvents: 0,
+    trialStartedAt: null,
+    stepDwellMs: { 1: 0, 2: 0, 3: 0, 4: 0 },
+    // Time the trial was open but the participant was NOT looking at it (tab
+    // hidden or window unfocused). Raw dwell cannot distinguish "deliberated for
+    // 90s" from "left the tab for 80s and decided in 10s", and dwell is a §6
+    // measure the §7 models use — so away-time is accumulated and reported
+    // alongside, letting an active-dwell measure be derived.
+    stepActiveDwellMs: { 1: 0, 2: 0, 3: 0, 4: 0 },
+    awayMs: 0,
+    awaySince: null,
+    stepAwayBaseline: 0,
+  }
+}
+
 // ── Telemetry Service Class ───────────────────────────────────────────────────
 class TelemetryService {
   constructor() {
     this.sessionMetadata = this._loadOrInitSession()
-    this.passiveMetrics = {
-      scrollCount: 0,
-      chartInteractions: 0,
-      focusChanges: 0,
-      windowBlurEvents: 0,
-      windowResumeEvents: 0,
-    }
+    this.trialMetrics = emptyTrialMetrics()
+    // Kept under the old name so existing call sites keep working.
+    this.passiveMetrics = this.trialMetrics
     this.isFlushing = false
+    this.flushTimer = null
 
     this._initPassiveListeners()
-    // Attempt initial queue flush on load
+    this._scheduleFlush()
     setTimeout(() => this.flushQueue(), 1000)
   }
 
@@ -144,34 +173,131 @@ class TelemetryService {
     }
   }
 
+  /**
+   * Switches this session onto the canonical, server-issued participant id.
+   *
+   * Events recorded before assignment (session start, consent) carry the
+   * provisional client id, so they are re-stamped here and the old id is kept
+   * as `priorParticipantId` for linkage.
+   */
+  adoptServerParticipantId(serverParticipantId) {
+    if (!serverParticipantId) return null
+    const priorParticipantId = this.sessionMetadata.participantId
+    if (priorParticipantId === serverParticipantId) return serverParticipantId
+
+    this.sessionMetadata.priorParticipantId = priorParticipantId || null
+    this.setSessionIdentity({ participantId: serverParticipantId })
+
+    try {
+      const queue = JSON.parse(localStorage.getItem(QUEUE_STORAGE_KEY) || '[]')
+      let changed = false
+      for (const envelope of queue) {
+        if (!envelope.participantId || envelope.participantId === priorParticipantId) {
+          envelope.participantId = serverParticipantId
+          envelope.priorParticipantId = priorParticipantId || null
+          changed = true
+        }
+      }
+      if (changed) localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(queue))
+    } catch {
+      // Queue re-stamp is best-effort; the server also stores priorParticipantId.
+    }
+
+    return serverParticipantId
+  }
+
   // ── Passive Event Listeners ───────────────────────────────────────────────
   _initPassiveListeners() {
     if (typeof window === 'undefined') return
 
     window.addEventListener('blur', () => {
-      this.passiveMetrics.windowBlurEvents += 1
-      this.recordEvent(EventType.SCREEN_VIEWED, { action: 'window_blur' })
+      this.trialMetrics.windowBlurEvents += 1
+      this._beginAway()
     })
 
     window.addEventListener('focus', () => {
-      this.passiveMetrics.windowResumeEvents += 1
-      this.passiveMetrics.focusChanges += 1
-      this.recordEvent(EventType.SCREEN_VIEWED, { action: 'window_focus' })
+      this.trialMetrics.windowResumeEvents += 1
+      this.trialMetrics.focusChanges += 1
+      this._endAway()
     })
 
+    // Scroll DEPTH, not scroll event count: the deepest proportion of the
+    // document the participant actually reached during this trial.
     window.addEventListener('scroll', () => {
-      this.passiveMetrics.scrollCount += 1
+      const doc = document.documentElement
+      const scrollable = (doc.scrollHeight || 0) - (window.innerHeight || 0)
+      const pct = scrollable > 0
+        ? Math.round(Math.min(100, ((window.scrollY || 0) / scrollable) * 100))
+        : 0
+      if (pct > this.trialMetrics.scrollDepthPct) this.trialMetrics.scrollDepthPct = pct
     }, { passive: true })
+
+    // Interaction count: every deliberate commit the participant makes.
+    window.addEventListener('pointerdown', () => { this.trialMetrics.interactionCount += 1 }, { passive: true })
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ' || e.key.startsWith('Arrow')) {
+        this.trialMetrics.interactionCount += 1
+      }
+    }, { passive: true })
+
+    // Flush on hide — the reliable moment to get the tail of a session out.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') {
+        this._beginAway()
+        this.flushQueue({ beacon: true })
+      } else {
+        this._endAway()
+      }
+    })
+    window.addEventListener('pagehide', () => this.flushQueue({ beacon: true }))
+  }
+
+  /** Starts an away interval (tab hidden or window blurred), if not already away. */
+  _beginAway() {
+    if (this.trialMetrics.awaySince == null) this.trialMetrics.awaySince = Date.now()
+  }
+
+  /** Closes an away interval and adds it to the trial's away total. */
+  _endAway() {
+    const since = this.trialMetrics.awaySince
+    if (since == null) return
+    this.trialMetrics.awayMs += Math.max(0, Date.now() - since)
+    this.trialMetrics.awaySince = null
+  }
+
+  /** Away time accumulated so far, including an interval still open. */
+  _awayMsNow() {
+    const m = this.trialMetrics
+    const open = m.awaySince == null ? 0 : Math.max(0, Date.now() - m.awaySince)
+    return m.awayMs + open
+  }
+
+  /** Called when the participant returns attention to the chart (Appendix C.4). */
+  recordChartRevisit(context = {}) {
+    this.trialMetrics.chartRevisitCount += 1
+    return this.trialMetrics.chartRevisitCount
   }
 
   resetTrialPassiveMetrics() {
-    this.passiveMetrics = {
-      scrollCount: 0,
-      chartInteractions: 0,
-      focusChanges: 0,
-      windowBlurEvents: 0,
-      windowResumeEvents: 0,
-    }
+    this.trialMetrics = emptyTrialMetrics()
+    this.trialMetrics.trialStartedAt = Date.now()
+    this.passiveMetrics = this.trialMetrics
+  }
+
+  /**
+   * Accumulates per-step dwell so Step 4 can report the full four-step profile,
+   * both raw and net of time the participant spent away from the tab.
+   */
+  recordStepDwell(step, dwellMs) {
+    const n = Number(dwellMs)
+    if (!Number.isFinite(n) || n < 0) return
+    const m = this.trialMetrics
+    m.stepDwellMs[step] = (m.stepDwellMs[step] || 0) + n
+
+    const awayNow = this._awayMsNow()
+    const awayThisStep = Math.max(0, awayNow - m.stepAwayBaseline)
+    m.stepActiveDwellMs[step] = (m.stepActiveDwellMs[step] || 0) + Math.max(0, n - awayThisStep)
+    m.stepAwayBaseline = awayNow
   }
 
   // ── Primary Dispatch Method ───────────────────────────────────────────────
@@ -180,7 +306,7 @@ class TelemetryService {
    */
   recordEvent(eventType, payload = {}, metadata = {}) {
     const timestamp = new Date().toISOString()
-    const eventId = `EV-${Math.random().toString(36).substring(2, 11)}`
+    const eventId = `EV-${Math.random().toString(36).substring(2, 11)}-${Date.now().toString(36)}`
 
     // Construct standard Envelope (No metadata duplication inside payload)
     const eventEnvelope = {
@@ -189,6 +315,7 @@ class TelemetryService {
       timestamp,
       sessionId: this.sessionMetadata.sessionId,
       participantId: metadata.participantId || this.sessionMetadata.participantId,
+      priorParticipantId: this.sessionMetadata.priorParticipantId || null,
       condition: metadata.condition || this.sessionMetadata.condition,
       participantType: metadata.participantType || this.sessionMetadata.participantType,
       screen: metadata.screen || payload.screen || 'unknown',
@@ -198,11 +325,12 @@ class TelemetryService {
       payload: this._sanitizePayload(payload),
     }
 
-    // Persist locally in queue asynchronously
     this._queueEvent(eventEnvelope)
 
-    // Attempt non-blocking HTTP dispatch
-    this._sendEvent(eventEnvelope)
+    // Critical events go out now; everything else rides the next batch.
+    if (CRITICAL_EVENTS.has(eventType)) {
+      this.flushQueue()
+    }
 
     return eventEnvelope
   }
@@ -219,70 +347,84 @@ class TelemetryService {
   }
 
   // ── Queue & Transport Layer ───────────────────────────────────────────────
-  _queueEvent(eventEnvelope) {
+  _readQueue() {
     try {
-      const queue = JSON.parse(localStorage.getItem(QUEUE_STORAGE_KEY) || '[]')
-      queue.push(eventEnvelope)
+      return JSON.parse(localStorage.getItem(QUEUE_STORAGE_KEY) || '[]')
+    } catch {
+      return []
+    }
+  }
+
+  _writeQueue(queue) {
+    try {
       localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(queue))
     } catch (e) {
-      // LocalStorage quota fallback
       console.warn('[Telemetry] Storage write failed', e)
     }
   }
 
-  async _sendEvent(eventEnvelope) {
+  _queueEvent(eventEnvelope) {
+    const queue = this._readQueue()
+    queue.push(eventEnvelope)
+
+    // Under a hard cap, shed the oldest non-critical events rather than losing
+    // the newest — the primary DVs are always the most recent writes.
+    if (queue.length > MAX_QUEUE_LENGTH) {
+      const kept = queue.filter((e) => CRITICAL_EVENTS.has(e.eventType))
+      const rest = queue.filter((e) => !CRITICAL_EVENTS.has(e.eventType))
+      this._writeQueue([...kept, ...rest.slice(-(MAX_QUEUE_LENGTH - kept.length))])
+      return
+    }
+
+    this._writeQueue(queue)
+  }
+
+  _scheduleFlush() {
+    if (typeof window === 'undefined' || this.flushTimer) return
+    this.flushTimer = setInterval(() => this.flushQueue(), FLUSH_INTERVAL_MS)
+  }
+
+  /**
+   * Sends queued envelopes in batches. Only envelopes confirmed by the server
+   * are removed, so a failed flush is retried on the next interval.
+   *
+   * The server de-duplicates on a unique `eventId`, so a re-sent batch is safe.
+   */
+  async flushQueue({ beacon = false } = {}) {
     if (!API_BASE_URL) return
+    const queue = this._readQueue()
+    if (queue.length === 0) return
 
-    try {
-      const response = await fetch(API_BASE_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(eventEnvelope),
-        keepalive: true,
-      })
-
-      if (response.ok) {
-        this._removeFromQueue(eventEnvelope.eventId)
+    // sendBeacon is fire-and-forget and survives page unload, but gives no
+    // confirmation — the queue is only cleared on a confirmed fetch.
+    if (beacon && typeof navigator !== 'undefined' && navigator.sendBeacon) {
+      try {
+        const blob = new Blob([JSON.stringify(queue.slice(0, MAX_BATCH_SIZE))], { type: 'application/json' })
+        navigator.sendBeacon(API_BASE_URL, blob)
+      } catch {
+        // Nothing further to try during unload.
       }
-    } catch {
-      // Network failure — envelope remains queued safely in LocalStorage
+      return
     }
-  }
 
-  _removeFromQueue(eventId) {
-    try {
-      const queue = JSON.parse(localStorage.getItem(QUEUE_STORAGE_KEY) || '[]')
-      const updated = queue.filter((item) => item.eventId !== eventId)
-      localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(updated))
-    } catch {
-      // Queue update fallback
-    }
-  }
-
-  async flushQueue() {
-    if (this.isFlushing || !API_BASE_URL) return
+    if (this.isFlushing) return
     this.isFlushing = true
 
     try {
-      const queue = JSON.parse(localStorage.getItem(QUEUE_STORAGE_KEY) || '[]')
-      if (queue.length === 0) {
-        this.isFlushing = false
-        return
-      }
-
-      // Send pending events in batch
+      const batch = queue.slice(0, MAX_BATCH_SIZE)
       const response = await fetch(API_BASE_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(queue),
+        body: JSON.stringify(batch),
         keepalive: true,
       })
 
       if (response.ok) {
-        localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify([]))
+        const sent = new Set(batch.map((e) => e.eventId))
+        this._writeQueue(this._readQueue().filter((e) => !sent.has(e.eventId)))
       }
     } catch {
-      // Retry on next trigger
+      // Network failure — envelopes remain queued for the next interval.
     } finally {
       this.isFlushing = false
     }
@@ -291,11 +433,12 @@ class TelemetryService {
   // ── High-Level Domain Telemetry API ────────────────────────────────────────
 
   recordSessionStart(participantId) {
-    this.setSessionIdentity({ participantId })
+    if (participantId) this.setSessionIdentity({ participantId })
     return this.recordEvent(EventType.SESSION_STARTED, {
       timezone: this.sessionMetadata.timezone,
       language: this.sessionMetadata.language,
       screenResolution: this.sessionMetadata.screenResolution,
+      startedAt: this.sessionMetadata.createdAt,
     })
   }
 
@@ -318,25 +461,22 @@ class TelemetryService {
     })
   }
 
-  recordTrialStart({ trialId, scenarioType, isPractice, orderIndex, scenario }) {
+  recordTrialStart({ trialId, scenarioType, isPractice, orderIndex, scenario, isCorrect, errorDirection }) {
     this.resetTrialPassiveMetrics()
 
-    // Determine recommendation correctness classification (never shown to participant)
     const recObj = typeof scenario.recommendation === 'object' ? scenario.recommendation : {}
-    const displayedRec = recObj.active ?? scenario.recommendation
-    const correctRec = recObj.correct ?? scenario.optimal
-    const incorrectRec = recObj.incorrect ?? null
-    const isCorrectRec = displayedRec === correctRec
 
     return this.recordEvent(EventType.TRIAL_STARTED, {
       trialId,
       scenarioType,
       isPractice,
       orderIndex,
-      displayedRecommendation: displayedRec,
-      correctRecommendation: correctRec,
-      incorrectRecommendation: incorrectRec,
-      isRecommendationCorrect: isCorrectRec,
+      // Assigned correctness comes from the plan; the scenario object alone
+      // cannot tell which version this participant is about to see.
+      isRecommendationCorrect: isCorrect != null ? Boolean(isCorrect) : null,
+      errorDirection: errorDirection || null,
+      correctRecommendation: recObj.correct ?? null,
+      incorrectRecommendation: recObj.incorrect ?? null,
       historicalStatisticLabel: scenario.historicalStatistic?.label || null,
       historicalStatisticValue: scenario.historicalStatistic?.value || null,
       driversCount: scenario.drivers ? scenario.drivers.length : 0,
@@ -344,6 +484,7 @@ class TelemetryService {
   }
 
   recordStep1InitialEstimate({ trialId, isPractice, initialEstimate, initialConfidence, dwellMs, editCount = 1 }) {
+    this.recordStepDwell(1, dwellMs)
     return this.recordEvent(EventType.INITIAL_ESTIMATE_SUBMITTED, {
       trialId,
       isPractice,
@@ -355,6 +496,7 @@ class TelemetryService {
   }
 
   recordStep2AIReveal({ trialId, isPractice, condition, explanationViewed, dwellMs }) {
+    this.recordStepDwell(2, dwellMs)
     return this.recordEvent(EventType.AI_REVEALED, {
       trialId,
       isPractice,
@@ -365,6 +507,7 @@ class TelemetryService {
   }
 
   recordStep3Verification({ trialId, isPractice, verificationResponse, dwellMs }) {
+    this.recordStepDwell(3, dwellMs)
     return this.recordEvent(EventType.VERIFICATION_COMPLETED, {
       trialId,
       isPractice,
@@ -381,18 +524,23 @@ class TelemetryService {
     isCorrect,
     errorDirection,
     groundTruthOptimal: customOptimal,
+    initialEstimate,
     finalEstimate,
     finalConfidence,
     cognitiveLoad,
     verificationResponse,
     dwellMs,
-    totalTrialDwellMs,
   }) {
+    this.recordStepDwell(4, dwellMs)
+
     const recObj = typeof scenario.recommendation === 'object' ? scenario.recommendation : {}
     const displayedRec = customAiRec ?? (recObj.active ?? scenario.recommendation)
     const optimal = customOptimal ?? (scenario.groundTruthOptimal ?? recObj.correct ?? recObj.optimal)
 
-    return this.recordEvent(EventType.FINAL_ESTIMATE_SUBMITTED, {
+    const m = this.trialMetrics
+    const totalTrialDwellMs = m.trialStartedAt ? Date.now() - m.trialStartedAt : 0
+
+    const event = this.recordEvent(EventType.FINAL_ESTIMATE_SUBMITTED, {
       trialId,
       scenarioType: scenario.scenarioType || scenario.type,
       isPractice,
@@ -407,13 +555,33 @@ class TelemetryService {
       finalConfidence: Number(finalConfidence),
       cognitiveLoad: Number(cognitiveLoad),
       verificationResponse,
-      // Timings & Observability
+      // Timings (Appendix C.4)
+      step1DwellMs: m.stepDwellMs[1] || 0,
+      step2DwellMs: m.stepDwellMs[2] || 0,
+      step3DwellMs: m.stepDwellMs[3] || 0,
       step4DwellMs: dwellMs,
       totalTrialDwellMs,
-      scrollCount: this.passiveMetrics.scrollCount,
-      chartInteractions: this.passiveMetrics.chartInteractions,
-      focusChanges: this.passiveMetrics.focusChanges,
+      // Dwell net of time the tab was hidden or unfocused (§6 behavioural log)
+      step1ActiveDwellMs: m.stepActiveDwellMs[1] || 0,
+      step2ActiveDwellMs: m.stepActiveDwellMs[2] || 0,
+      step3ActiveDwellMs: m.stepActiveDwellMs[3] || 0,
+      step4ActiveDwellMs: m.stepActiveDwellMs[4] || 0,
+      totalAwayMs: this._awayMsNow(),
+      totalActiveDwellMs: Math.max(0, totalTrialDwellMs - this._awayMsNow()),
+      // Behavioural log (Appendix C.4)
+      scrollDepthPct: m.scrollDepthPct,
+      chartRevisitCount: m.chartRevisitCount,
+      interactionCount: m.interactionCount,
+      focusChanges: m.focusChanges,
     }, { trialId })
+
+    this.recordEvent(EventType.TRIAL_COMPLETED, {
+      trialId,
+      isPractice,
+      totalTrialDwellMs,
+    }, { trialId })
+
+    return event
   }
 
   recordQuestionnaire(instrumentId, responses) {
@@ -423,10 +591,19 @@ class TelemetryService {
     })
   }
 
-  recordSessionComplete() {
-    return this.recordEvent(EventType.SESSION_COMPLETED, {
-      totalDurationMs: new Date() - new Date(this.sessionMetadata.createdAt),
+  recordDebriefViewed() {
+    return this.recordEvent(EventType.DEBRIEF_VIEWED, {
+      viewedAt: new Date().toISOString(),
     })
+  }
+
+  recordSessionComplete() {
+    const event = this.recordEvent(EventType.SESSION_COMPLETED, {
+      totalDurationMs: new Date() - new Date(this.sessionMetadata.createdAt),
+      completedAt: new Date().toISOString(),
+    })
+    this.flushQueue()
+    return event
   }
 }
 

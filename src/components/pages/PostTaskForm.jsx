@@ -2,26 +2,34 @@ import React, { useState } from 'react'
 import NasaTlx, { NASA_TLX_DIMENSIONS } from '../questionnaires/NasaTlx.jsx'
 import NumeracyScale from '../questionnaires/NumeracyScale.jsx'
 import DomainExperience from '../questionnaires/DomainExperience.jsx'
+import ExpertReliance from '../questionnaires/ExpertReliance.jsx'
 import { scoreNumeracy, NUMERACY_ITEMS } from '../../config/numeracyScale.js'
 
-const SECTIONS = [
+const BASE_SECTIONS = [
   { id: 'tlx', title: 'Task Workload (NASA-TLX)', subtitle: 'Assess mental workload across the completed trials' },
   { id: 'numeracy', title: 'Quantitative Assessment', subtitle: 'A short validated numerical reasoning battery' },
   { id: 'domain', title: 'Domain Experience', subtitle: 'Background in supply chain and quantitative decision-making' },
 ]
 
-export default function PostTaskForm({ participantId, onComplete }) {
+// Appendix C.3 — experts additionally report how far they leaned on their own
+// company's rules of thumb rather than the on-screen information.
+const EXPERT_SECTION = {
+  id: 'reliance',
+  title: 'Basis for Your Decisions',
+  subtitle: 'How you weighed your own experience against the on-screen information',
+}
+
+export default function PostTaskForm({ participantId, participantType = 'novice', onComplete }) {
+  const isExpert = participantType === 'expert'
+  const SECTIONS = isExpert ? [...BASE_SECTIONS, EXPERT_SECTION] : BASE_SECTIONS
+
   const [activeTab, setActiveTab] = useState('tlx')
 
-  // Form states
-  const [tlxValues, setTlxValues] = useState({
-    mentalDemand: 50,
-    physicalDemand: 10,
-    temporalDemand: 40,
-    performance: 70,
-    effort: 50,
-    frustration: 30,
-  })
+  // NASA-TLX starts UNSET on every subscale. Seeding the sliders with plausible
+  // values let a participant submit the instrument without touching it, and made
+  // untouched responses indistinguishable from deliberate ones in the payload —
+  // biasing the H5 workload means toward the seed values.
+  const [tlxValues, setTlxValues] = useState({})
   const [numeracyValues, setNumeracyValues] = useState({})
   const [domainValues, setDomainValues] = useState({
     yearsExperience: '',
@@ -29,6 +37,11 @@ export default function PostTaskForm({ participantId, onComplete }) {
     decisionFrequency: '',
     certifications: '',
     feedback: '',
+  })
+  const [relianceValues, setRelianceValues] = useState({
+    relianceOnOwnHeuristics: null,
+    taskRealism: null,
+    heuristicDescription: '',
   })
 
   // Validation
@@ -38,8 +51,11 @@ export default function PostTaskForm({ participantId, onComplete }) {
     return val !== undefined && val !== ''
   })
   const domainComplete = Boolean(domainValues.yearsExperience && domainValues.primaryRole && domainValues.decisionFrequency)
+  const relianceComplete = !isExpert || (
+    relianceValues.relianceOnOwnHeuristics != null && relianceValues.taskRealism != null
+  )
 
-  const canSubmitAll = tlxComplete && numeracyComplete && domainComplete
+  const canSubmitAll = tlxComplete && numeracyComplete && domainComplete && relianceComplete
 
   function handleSubmit(e) {
     e.preventDefault()
@@ -67,6 +83,8 @@ export default function PostTaskForm({ participantId, onComplete }) {
         scored: scoredNum,
       },
       domainExperience: domainValues,
+      expertReliance: isExpert ? relianceValues : null,
+      participantType,
       submittedAt: new Date().toISOString(),
     }
 
@@ -92,7 +110,7 @@ export default function PostTaskForm({ participantId, onComplete }) {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(3, 1fr)',
+            gridTemplateColumns: `repeat(${SECTIONS.length}, 1fr)`,
             gap: 8,
             marginBottom: 28,
           }}
@@ -103,6 +121,7 @@ export default function PostTaskForm({ participantId, onComplete }) {
             if (sec.id === 'tlx') isSectionDone = tlxComplete
             if (sec.id === 'numeracy') isSectionDone = numeracyComplete
             if (sec.id === 'domain') isSectionDone = domainComplete
+            if (sec.id === 'reliance') isSectionDone = relianceComplete
 
             return (
               <button
@@ -203,6 +222,46 @@ export default function PostTaskForm({ participantId, onComplete }) {
                   onClick={() => setActiveTab('numeracy')}
                 >
                   ← Back to Numeracy
+                </button>
+                {isExpert ? (
+                  <button
+                    className="button primary"
+                    type="button"
+                    onClick={() => setActiveTab('reliance')}
+                    style={{ minWidth: 220 }}
+                  >
+                    Continue to Part 4: Your Decisions →
+                  </button>
+                ) : (
+                  <button
+                    className="button primary"
+                    type="submit"
+                    disabled={!canSubmitAll}
+                    style={{ minWidth: 220 }}
+                  >
+                    Submit &amp; Proceed to Debrief →
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+          {/* ── Section 4: Expert reliance (Appendix C.3, experts only) ── */}
+          {isExpert && activeTab === 'reliance' && (
+            <div>
+              <div style={{ marginBottom: 20 }}>
+                <h2 style={{ fontSize: 18, marginBottom: 4 }}>Basis for Your Decisions</h2>
+                <p style={{ color: 'var(--muted)', fontSize: 13 }}>
+                  These last questions ask how you approached the task as a practitioner.
+                </p>
+              </div>
+              <ExpertReliance values={relianceValues} onChange={setRelianceValues} />
+              <div style={{ marginTop: 28, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <button
+                  className="quiet-button"
+                  type="button"
+                  onClick={() => setActiveTab('domain')}
+                >
+                  ← Back to Experience
                 </button>
                 <button
                   className="button primary"

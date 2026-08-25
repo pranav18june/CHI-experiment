@@ -34,65 +34,91 @@ export const expediteOrWaitScenarios = [
     decisionLabel: DECISION_LABEL,
     decisionPrompt: DECISION_PROMPT,
 
+    // §5.9 response scale — anchored to this product's historical demand,
+    // never to the optimum or the AI value (see getScenarioScaleBounds).
+    // Width is pilot-settable (§12 item 6).
+    numberLine: { min: 0, max: 300, step: 5, anchor: null },
+
+    // §5.3 / §12 item 20: surfaced statistic == perturbed parameter.
     historicalStatistic: {
-      label: 'Late delivery probability',
-      value: '~6%',
+      label: 'Cost of each day out of stock',
+      value: '~$1,850 per day',
     },
+
+    // Chart asset bound to the instance id, not to the scenario's position in
+    // the array: presentation order is counterbalanced per participant (§5.11),
+    // so an index-based lookup would show the wrong chart.
+    chartImage: '/graphs/10.png',
 
     chart: {
       label: 'Historical delay and demand data',
       hint: 'Supplier delivery delay history and stockout penalty impact data will appear here.',
-      data: {
-        deliveryDelaySeries: 'TODO_CHART_DATA_EW1',
-        stockoutPenalty:     'TODO_CHART_DATA_EW1',
-        expediteCostCurve:   'TODO_CHART_DATA_EW1',
-      },
     },
 
     drivers: [
-      { name: 'Late delivery probability', weight: '+0.15' },
-      { name: 'Stockout penalty rate',     weight: '+0.22' },
-      { name: 'Freight shipment value',    weight: '+0.18' },
-      { name: 'Carrier transit time',      weight: '−0.11' },
+      { name: 'Stockout penalty rate',  weight: '+0.22' },
+      { name: 'Carrier transit time',   weight: '−0.11' },
     ],
 
     recommendation: {
       correct:   181,  // cost-optimal ground truth
-      incorrect: 118,  // AI underestimates expedite value (-35%)
+      incorrect: 118,  // biased AI suggestion (assumed stockout penalty ≈ $1,200/day, −35%)
       active:    118,
       optimal:   181,
     },
 
+    // Incorrect-version stimulus texts. Authored to the Appendix A pattern:
+    // C3 states ONLY the AI's own assumed input as a boundary — never the true
+    // value and never a corrected optimum (§5.3); C2 shares the confident
+    // register of its correct counterpart.
     explanations: {
       c0: null,
-      c1: 'TODO_C1_EXPLANATION_EW1',
+      c1: {
+        factors: [
+          { label: 'Stockout penalty rate', value: '+0.22' },
+          { label: 'Carrier transit time', value: '−0.11' },
+        ],
+      },
       c2:
-        'This accessory category experiences late deliveries on roughly 6% of shipments. ' +
-        'While the AI recommends a conservative expedite payment of $118, considering the ' +
-        'potential margin loss on high-demand fashion items, a slightly higher expedite payment ' +
-        'of around $180 provides better protection against delayed shipment costs.',
+        'An empty shelf in this category costs relatively little while the shipment catches up — ' +
+        'shoppers tend to wait or substitute. The AI recommends paying $118 to expedite, enough ' +
+        'to shorten the gap without overspending on freight.',
       c3:
-        'This recommendation assumes a stockout penalty of approximately $1,200 per day delayed. ' +
-        'The actual business cost of a delayed shipment in this category is closer to $1,850 per day. ' +
-        'If penalty costs match that higher historical figure, paying $181 to expedite is cost-optimal.',
+        'This expedite payment is set for a stockout cost of about $1,200 for each day the shipment ' +
+        'is late. The AI would recommend paying more if a day without stock cost this category more than that.',
     },
 
     correctExplanations: {
       c0: null,
-      c1: 'Late delivery risk driver weights (6% delay probability, $1,850/day penalty).',
+      c1: {
+        factors: [
+          { label: 'Stockout penalty rate', value: '+0.22' },
+          { label: 'Carrier transit time', value: '−0.11' },
+        ],
+      },
       c2:
-        'With a 6% probability of supplier delay and stockout penalty costs of $1,850 per delayed day, ' +
-        'paying $181 to expedite minimizes expected disruption costs and protects fashion margins.',
+        'An empty shelf in this category is expensive while the shipment catches up — these are ' +
+        'high-margin fashion items shoppers buy elsewhere. The AI recommends paying $181 to ' +
+        'expedite and close that gap.',
       c3:
-        'This recommendation reflects a stockout penalty of $1,850/day. ' +
-        'If daily penalty costs were only $1,200, paying $118 would be sufficient, ' +
-        'but higher true penalties make $181 optimal.',
+        'This expedite payment is set for a stockout cost of about $1,850 for each day the shipment ' +
+        'is late. The AI would recommend paying less only if a day without stock cost this category ' +
+        'considerably less than that.',
     },
 
+    // CONSTRUCTED instance: not derived from a real dataset. §5.5 lists
+    // Expedite-or-Wait as blocked pending a lead-time dataset, so these parameters
+    // describe the stimulus rather than reproduce the optimum from a pipeline.
+    // `reproducible: false` keeps the §7 sensitivity analysis honest about which
+    // rows it can recompute. See PROTOCOL_GAPS_REMAINING.md item B-1.
     metadata: {
+      derivation:              'constructed',
+      reproducible:            false,
       lateDeliveryProbability: 0.06,
       stockoutPenaltyPerDay:   1850,
       expediteBaseCost:        181,
+      perturbedParameter:      'stockoutPenaltyPerDay',
+      perturbedValue:          1200,
     },
     futureExpansion: {},
   },
@@ -112,65 +138,82 @@ export const expediteOrWaitScenarios = [
     decisionLabel: DECISION_LABEL,
     decisionPrompt: DECISION_PROMPT,
 
+    // §5.9 response scale — anchored to this product's historical demand,
+    // never to the optimum or the AI value (see getScenarioScaleBounds).
+    // Width is pilot-settable (§12 item 6).
+    numberLine: { min: 0, max: 3000, step: 25, anchor: null },
+
     historicalStatistic: {
-      label: 'Late delivery probability',
-      value: '~8%',
+      label: 'Typical delay when a shipment is late',
+      value: '~3 days',
     },
+
+    // Chart asset bound to the instance id, not to the scenario's position in
+    // the array: presentation order is counterbalanced per participant (§5.11),
+    // so an index-based lookup would show the wrong chart.
+    chartImage: '/graphs/11.png',
 
     chart: {
       label: 'Historical delay and demand data',
       hint: 'Supplier delivery delay history and stockout penalty impact data will appear here.',
-      data: {
-        deliveryDelaySeries: 'TODO_CHART_DATA_EW2',
-        stockoutPenalty:     'TODO_CHART_DATA_EW2',
-        expediteCostCurve:   'TODO_CHART_DATA_EW2',
-      },
     },
 
     drivers: [
-      { name: 'Late delivery probability',    weight: '+0.24' },
-      { name: 'Stockout penalty rate',        weight: '+0.38' },
-      { name: 'Freight shipment value',       weight: '+0.29' },
-      { name: 'Interstate shipping distance', weight: '+0.17' },
+      { name: 'Stockout penalty rate',     weight: '+0.38' },
+      { name: 'Late delivery probability', weight: '+0.24' },
     ],
 
     recommendation: {
       correct:   1106,  // cost-optimal ground truth
-      incorrect: 1438,  // AI overestimates required expedite payment (+30%)
+      incorrect: 1438,  // biased AI suggestion (assumed delay length ≈ 5 days, +30%)
       active:    1438,
       optimal:   1106,
     },
 
+    // Incorrect-version stimulus texts. See EW-1.
     explanations: {
       c0: null,
-      c1: 'TODO_C1_EXPLANATION_EW2',
+      c1: {
+        factors: [
+          { label: 'Stockout penalty rate', value: '+0.38' },
+          { label: 'Late delivery probability', value: '+0.24' },
+        ],
+      },
       c2:
-        'Auto parts shipments carry an 8% late delivery risk with substantial downstream ' +
-        'penalties for missing critical components. The AI recommends an expedite payment of ' +
-        '$1,438. However, cost analysis indicates that a lower payment of $1,106 secures ' +
-        'priority handling without overpaying for unnecessary freight speed.',
+        'When this route runs late, it runs late by a long way, and a workshop waiting on a ' +
+        'replacement component absorbs the cost every one of those days. The AI recommends ' +
+        'paying $1,438 to expedite and pull the shipment forward.',
       c3:
-        'This recommendation assumes expected shipping delays of up to 5 days. Historical ' +
-        'carrier data shows actual delays rarely exceed 3 days for this route. ' +
-        'Given shorter expected delays, paying $1,106 to expedite is sufficient to mitigate risk.',
+        'This expedite payment is set for late shipments arriving about 5 days behind schedule. ' +
+        'The AI would recommend paying less if this route recovered more quickly than that when it slipped.',
     },
 
     correctExplanations: {
       c0: null,
-      c1: 'Moderate delay risk driver weights (8% delay probability, 3-day max delay).',
+      c1: {
+        factors: [
+          { label: 'Stockout penalty rate', value: '+0.38' },
+          { label: 'Late delivery probability', value: '+0.24' },
+        ],
+      },
       c2:
-        'Carrying an 8% late delivery risk with expected delays of up to 3 days, paying $1,106 secures ' +
-        'priority freight handling and mitigates component shortages without overpaying for express transport.',
+        'When this route runs late it recovers quickly, though a workshop waiting on a replacement ' +
+        'component absorbs a real cost for each of those days. The AI recommends paying $1,106 to ' +
+        'expedite and pull the shipment forward.',
       c3:
-        'This recommendation reflects carrier delays averaging up to 3 days. ' +
-        'If delays regularly reached 5 days, paying $1,438 would be justified, ' +
-        'but 3-day delay history confirms $1,106 is optimal.',
+        'This expedite payment is set for late shipments arriving about 3 days behind schedule. ' +
+        'The AI would recommend paying more only if this route slipped considerably further behind than that.',
     },
 
     metadata: {
+      derivation:              'constructed',
+      reproducible:            false,
       lateDeliveryProbability: 0.08,
-      stockoutPenaltyPerDay:   'TODO_METADATA',
+      typicalDelayDays:        3,
+      stockoutPenaltyPerDay:   2400,
       expediteBaseCost:        1106,
+      perturbedParameter:      'typicalDelayDays',
+      perturbedValue:          5,
     },
     futureExpansion: {},
   },
@@ -190,65 +233,82 @@ export const expediteOrWaitScenarios = [
     decisionLabel: DECISION_LABEL,
     decisionPrompt: DECISION_PROMPT,
 
+    // §5.9 response scale — anchored to this product's historical demand,
+    // never to the optimum or the AI value (see getScenarioScaleBounds).
+    // Width is pilot-settable (§12 item 6).
+    numberLine: { min: 0, max: 800, step: 5, anchor: null },
+
     historicalStatistic: {
       label: 'Late delivery probability',
       value: '~10%',
     },
 
+    // Chart asset bound to the instance id, not to the scenario's position in
+    // the array: presentation order is counterbalanced per participant (§5.11),
+    // so an index-based lookup would show the wrong chart.
+    chartImage: '/graphs/12.png',
+
     chart: {
       label: 'Historical delay and demand data',
       hint: 'Supplier delivery delay history and stockout penalty impact data will appear here.',
-      data: {
-        deliveryDelaySeries: 'TODO_CHART_DATA_EW3',
-        stockoutPenalty:     'TODO_CHART_DATA_EW3',
-        expediteCostCurve:   'TODO_CHART_DATA_EW3',
-      },
     },
 
     drivers: [
       { name: 'Late delivery probability', weight: '+0.32' },
-      { name: 'Stockout penalty rate',     weight: '+0.27' },
-      { name: 'Freight shipment value',    weight: '+0.25' },
       { name: 'Carrier transit time',      weight: '−0.14' },
     ],
 
     recommendation: {
       correct:   245,  // cost-optimal ground truth
-      incorrect: 172,  // AI underestimates delay risk penalty (-30%)
+      incorrect: 172,  // biased AI suggestion (assumed delay probability ≈ 5%, −30%)
       active:    172,
       optimal:   245,
     },
 
+    // Incorrect-version stimulus texts. See EW-1.
     explanations: {
       c0: null,
-      c1: 'TODO_C1_EXPLANATION_EW3',
+      c1: {
+        factors: [
+          { label: 'Late delivery probability', value: '+0.32' },
+          { label: 'Carrier transit time', value: '−0.14' },
+        ],
+      },
       c2:
-        'Consumer electronics shipments face a 10% late delivery rate — the highest risk level ' +
-        'among expedite scenarios. The AI suggests paying $172 to expedite. However, high product ' +
-        'margins and strict launch deadlines mean an expedite payment of $245 is warranted to avoid ' +
-        'costly stockouts.',
+        'Shipments on this route usually arrive when promised, so the launch date is rarely the ' +
+        'one at risk. The AI recommends paying $172 to expedite, covering the occasional slip ' +
+        'without paying for speed on every shipment.',
       c3:
-        'This recommendation assumes a delay probability of only 5%. Historical tracking for ' +
-        'this high-volume electronic route demonstrates a true delay frequency closer to 10%. ' +
-        'Accounting for this higher delay likelihood, a $245 expedite payment minimizes expected total cost.',
+        'This expedite payment is set for shipments running late about 5% of the time. The AI would ' +
+        'recommend paying more if this route missed its delivery date more often than that.',
     },
 
     correctExplanations: {
       c0: null,
-      c1: 'Higher delay frequency driver weights (10% delay probability).',
+      c1: {
+        factors: [
+          { label: 'Late delivery probability', value: '+0.32' },
+          { label: 'Carrier transit time', value: '−0.14' },
+        ],
+      },
       c2:
-        'Facing a 10% late delivery rate on high-margin consumer electronics, paying $245 for expedited ' +
-        'shipment avoids costly missed launch dates and stockout penalties.',
+        'Shipments on this route miss their promised date often enough that a launch is genuinely ' +
+        'at risk. The AI recommends paying $245 to expedite and protect the on-shelf date for ' +
+        'high-margin electronics.',
       c3:
-        'This recommendation is based on a true 10% delay frequency. ' +
-        'If delay risk were only 5%, an expedite payment of $172 would suffice, ' +
-        'but 10% risk establishes $245 as cost-optimal.',
+        'This expedite payment is set for shipments running late about 10% of the time. The AI would ' +
+        'recommend paying less only if this route hit its delivery date considerably more reliably than that.',
     },
 
     metadata: {
+      derivation:              'constructed',
+      reproducible:            false,
       lateDeliveryProbability: 0.10,
-      stockoutPenaltyPerDay:   'TODO_METADATA',
+      typicalDelayDays:        4,
+      stockoutPenaltyPerDay:   1500,
       expediteBaseCost:        245,
+      perturbedParameter:      'lateDeliveryProbability',
+      perturbedValue:          0.05,
     },
     futureExpansion: {},
   },

@@ -36,48 +36,57 @@ export const safetyStockScenarios = [
     decisionLabel: DECISION_LABEL,
     decisionPrompt: DECISION_PROMPT,
 
+    // §5.9 response scale — anchored to this product's historical demand,
+    // never to the optimum or the AI value (see getScenarioScaleBounds).
+    // Width is pilot-settable (§12 item 6).
+    numberLine: { min: 0, max: 70000, step: 250, anchor: 12600 },
+
     historicalStatistic: {
       label: 'Historical weekly demand variation',
       value: '$12,600',
     },
 
+    // Chart asset bound to the instance id, not to the scenario's position in
+    // the array: presentation order is counterbalanced per participant (§5.11),
+    // so an index-based lookup would show the wrong chart.
+    chartImage: '/graphs/1.png',
+
     chart: {
       label: 'Weekly sales history',
       hint: '143 weeks of verified historical weekly sales will appear here.',
-      data: {
-        historicalSeries: 'TODO_CHART_DATA_SS1',
-        movingAverage:    'TODO_CHART_DATA_SS1',
-        distribution:     'TODO_CHART_DATA_SS1',
-        driverOverlay:    'TODO_CHART_DATA_SS1',
-      },
     },
 
     drivers: [
-      { name: 'Holiday-week indicator',       weight: '+0.16' },
       { name: 'Promotional markdown present', weight: '+0.26' },
       { name: 'Temperature',                  weight: '−0.28' },
-      { name: 'Unemployment',                 weight: '−0.27' },
     ],
 
     recommendation: {
       correct:   29251,  // cost-optimal ground truth
-      incorrect: 38026,  // biased AI suggestion (overestimates volatility +30%)
+      incorrect: 38026,  // biased AI suggestion (assumed volatility ≈ $16,300, +30%)
       active:    38026,
       optimal:   29251,
     },
 
+    // Incorrect-version stimulus texts (Appendix A, verbatim).
+    // C3 states ONLY the AI's own assumed input as a boundary — never the true
+    // value and never a corrected optimum (§5.3). C2 shares the confident
+    // register of its correct counterpart; only the number/claim differs.
     explanations: {
       c0: null,
-      c1: 'TODO_C1_EXPLANATION_SS1',
+      c1: {
+        factors: [
+          { label: 'Promotional markdown present', value: '+0.26' },
+          { label: 'Temperature', value: '−0.28' },
+        ],
+      },
       c2:
-        'This product category has recently shown signs of larger swings in demand, ' +
-        'with colder weeks and promotional periods driving noticeably higher sales than usual. ' +
-        'To guard against this apparent rise in volatility, the AI recommends a larger safety ' +
-        'stock buffer of $38,026 than the historical average would suggest.',
+        'Cold-weather weeks and promotional periods drive sizeable demand surges for this category, ' +
+        'and the swings have been widening. The AI recommends a buffer of $38,026 to stay ahead of ' +
+        'these larger surges.',
       c3:
-        'This recommendation assumes weekly demand volatility of about $16,300. The historical ' +
-        'data for this category instead shows volatility closer to $12,570 — about 30% lower. ' +
-        'If volatility returns to that historical level, a smaller buffer of roughly $29,250 would be sufficient.',
+        'This buffer is set for weekly demand swings of about $16,300. The AI would recommend a ' +
+        "smaller buffer if this category's week-to-week demand were steadier than that.",
     },
 
     correctExplanations: {
@@ -94,10 +103,25 @@ export const safetyStockScenarios = [
         "This buffer is set for weekly demand swings of about $12,600. The AI would recommend a larger buffer only if this category's week-to-week demand were markedly more volatile than that.",
     },
 
+    // §7 sensitivity analysis re-runs the primary model against alternative
+    // constants, so the inputs behind the optimum must survive into the export.
+    // SS = Z x sigma_weekly x sqrt(LT)  (Appendix B.3)
+    //
+    // groundTruthOptimal is the Appendix A value and stays authoritative for
+    // scoring. Recomputing it from these constants agrees to within the
+    // protocol's own rounding (<0.02%): SS-1 29,250 vs 29,251; SS-2 49,169 vs
+    // 49,159; SS-3 67,061 vs 67,054. Re-derive with the same constants when
+    // running the sensitivity analysis rather than mixing the two.
     metadata: {
-      demandMean:   'TODO_DATASET',
-      demandStd:    12570,
-      serviceLevel: 'TODO_METADATA',
+      derivation:    'walmart-weekly-sales',
+      reproducible:  true,
+      demandMean:    83498,
+      demandStd:     12573,
+      serviceLevel:  0.95,
+      zScore:        1.645,
+      leadTimeWeeks: 2,
+      perturbedParameter: 'demandStd',
+      perturbedValue:     16300,
     },
     futureExpansion: {},
   },
@@ -117,46 +141,53 @@ export const safetyStockScenarios = [
     decisionLabel: DECISION_LABEL,
     decisionPrompt: DECISION_PROMPT,
 
+    // §5.9 response scale — anchored to this product's historical demand,
+    // never to the optimum or the AI value (see getScenarioScaleBounds).
+    // Width is pilot-settable (§12 item 6).
+    numberLine: { min: 0, max: 80000, step: 250, anchor: 21100 },
+
     historicalStatistic: {
       label: 'Historical weekly demand variation',
       value: '$21,100',
     },
 
+    // Chart asset bound to the instance id, not to the scenario's position in
+    // the array: presentation order is counterbalanced per participant (§5.11),
+    // so an index-based lookup would show the wrong chart.
+    chartImage: '/graphs/2.png',
+
     chart: {
       label: 'Weekly sales history',
       hint: 'Verified historical weekly sales will appear here.',
-      data: {
-        historicalSeries: 'TODO_CHART_DATA_SS2',
-        movingAverage:    'TODO_CHART_DATA_SS2',
-        distribution:     'TODO_CHART_DATA_SS2',
-        driverOverlay:    'TODO_CHART_DATA_SS2',
-      },
     },
 
     drivers: [
       { name: 'Holiday-week indicator', weight: '+0.43' },
       { name: 'Temperature',            weight: '−0.45' },
-      { name: 'Fuel price',             weight: '−0.21' },
     ],
 
     recommendation: {
       correct:   49159,  // cost-optimal ground truth
-      incorrect: 34411,  // underestimates volatility (-30%)
+      incorrect: 34411,  // biased AI suggestion (assumed volatility ≈ $14,800, −30%)
       active:    34411,
       optimal:   49159,
     },
 
+    // Incorrect-version stimulus texts (Appendix A, verbatim). See SS-1.
     explanations: {
       c0: null,
-      c1: 'TODO_C1_EXPLANATION_SS2',
+      c1: {
+        factors: [
+          { label: 'Holiday-week indicator', value: '+0.43' },
+          { label: 'Temperature', value: '−0.45' },
+        ],
+      },
       c2:
-        'Although this category shows some holiday-related sales increases, the AI treats the ' +
-        'overall pattern as fairly stable and recommends a comparatively modest safety stock buffer ' +
-        'of $34,411, reflecting a smaller expected swing in demand than the historical data actually shows.',
+        'This category follows a steady, well-behaved weekly pattern with only small deviations ' +
+        'around holidays. The AI recommends a lean buffer of $34,411, sufficient for these limited swings.',
       c3:
-        'This recommendation assumes weekly demand volatility of about $14,800. The historical data ' +
-        'instead shows volatility closer to $21,100 — about 30% higher. If volatility matches that ' +
-        'historical level, a larger buffer of roughly $49,150 would be needed.',
+        'This buffer is set for weekly demand swings of about $14,800. The AI would recommend a ' +
+        "larger buffer if this category's week-to-week demand were more volatile than that.",
     },
 
     correctExplanations: {
@@ -174,9 +205,15 @@ export const safetyStockScenarios = [
     },
 
     metadata: {
-      demandMean:   'TODO_DATASET',
-      demandStd:    21100,
-      serviceLevel: 'TODO_METADATA',
+      derivation:    'walmart-weekly-sales',
+      reproducible:  true,
+      demandMean:    77119,
+      demandStd:     21135,
+      serviceLevel:  0.95,
+      zScore:        1.645,
+      leadTimeWeeks: 2,
+      perturbedParameter: 'demandStd',
+      perturbedValue:     14800,
     },
     futureExpansion: {},
   },
@@ -196,46 +233,53 @@ export const safetyStockScenarios = [
     decisionLabel: DECISION_LABEL,
     decisionPrompt: DECISION_PROMPT,
 
+    // §5.9 response scale — anchored to this product's historical demand,
+    // never to the optimum or the AI value (see getScenarioScaleBounds).
+    // Width is pilot-settable (§12 item 6).
+    numberLine: { min: 0, max: 110000, step: 500, anchor: 28800 },
+
     historicalStatistic: {
       label: 'Historical weekly demand variation',
       value: '$28,800',
     },
 
+    // Chart asset bound to the instance id, not to the scenario's position in
+    // the array: presentation order is counterbalanced per participant (§5.11),
+    // so an index-based lookup would show the wrong chart.
+    chartImage: '/graphs/3.png',
+
     chart: {
       label: 'Weekly sales history',
       hint: 'Verified historical weekly sales will appear here.',
-      data: {
-        historicalSeries: 'TODO_CHART_DATA_SS3',
-        movingAverage:    'TODO_CHART_DATA_SS3',
-        distribution:     'TODO_CHART_DATA_SS3',
-        driverOverlay:    'TODO_CHART_DATA_SS3',
-      },
     },
 
     drivers: [
-      { name: 'Holiday-week indicator', weight: '+0.23' },
       { name: 'Temperature',            weight: '−0.47' },
-      { name: 'Fuel price',             weight: '−0.23' },
+      { name: 'Holiday-week indicator', weight: '+0.23' },
     ],
 
     recommendation: {
       correct:   67054,  // cost-optimal ground truth
-      incorrect: 90523,  // overestimates volatility (+35%)
+      incorrect: 90523,  // biased AI suggestion (assumed volatility ≈ $38,900, +35%)
       active:    90523,
       optimal:   67054,
     },
 
+    // Incorrect-version stimulus texts (Appendix A, verbatim). See SS-1.
     explanations: {
       c0: null,
-      c1: 'TODO_C1_EXPLANATION_SS3',
+      c1: {
+        factors: [
+          { label: 'Temperature', value: '−0.47' },
+          { label: 'Holiday-week indicator', value: '+0.23' },
+        ],
+      },
       c2:
-        'Recent weeks suggest this category may be entering an even more volatile stretch than ' +
-        'its historical pattern, with colder-weather demand spikes appearing larger than before. ' +
-        'To stay ahead of this apparent shift, the AI recommends a larger safety stock buffer of $90,523.',
+        'This category is entering an unusually turbulent stretch, with cold-weather demand spikes ' +
+        'running larger than ever. The AI recommends an especially large buffer of $90,523 to stay ahead of them.',
       c3:
-        'This recommendation assumes weekly demand volatility of about $38,900. The historical data ' +
-        'instead shows volatility closer to $28,800 — about 35% lower. If volatility matches that ' +
-        'historical level, a smaller buffer of roughly $67,050 would be sufficient.',
+        'This buffer is set for weekly demand swings of about $38,900. The AI would recommend a ' +
+        "smaller buffer if this category's week-to-week demand were steadier than that.",
     },
 
     correctExplanations: {
@@ -253,9 +297,15 @@ export const safetyStockScenarios = [
     },
 
     metadata: {
-      demandMean:   'TODO_DATASET',
-      demandStd:    28800,
-      serviceLevel: 'TODO_METADATA',
+      derivation:    'walmart-weekly-sales',
+      reproducible:  true,
+      demandMean:    58373,
+      demandStd:     28826,
+      serviceLevel:  0.95,
+      zScore:        1.645,
+      leadTimeWeeks: 2,
+      perturbedParameter: 'demandStd',
+      perturbedValue:     38900,
     },
     futureExpansion: {},
   },
