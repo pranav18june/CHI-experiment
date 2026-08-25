@@ -27,11 +27,26 @@ console.log('\n1. ENVIRONMENT')
 if (!process.env.MONGODB_URI) fail('MONGODB_URI is not set')
 else pass('MONGODB_URI set')
 
+// The admin secret guards the full participant dataset and the de-identified
+// export, so length alone is not enough: a memorable phrase of 16+ characters
+// passes a length check and is still trivially guessable.
+function weakSecretReason(v) {
+  const lower = v.toLowerCase()
+  if (v.length < 20) return `only ${v.length} chars; use 20+`
+  if (/^(study-admin|password|admin|changeme|secret)/i.test(v)) return 'starts with a common placeholder word'
+  if (/^(.+?)\1{2,}$/.test(lower)) return 'is a short string repeated (e.g. "meowmeowmeowmeow")'
+  if (/^[a-z]+$/.test(lower)) return 'is all lowercase letters — no digits or symbols'
+  if (new Set(lower).size < 10) return `uses only ${new Set(lower).size} distinct characters`
+  if (/(password|secret|admin|study|thisis|itsa)/i.test(lower)) return 'contains a dictionary word a guesser would try'
+  return null
+}
 const secret = process.env.ADMIN_SECRET
 if (!secret) fail('ADMIN_SECRET is not set — admin API will refuse all access (503)')
-else if (secret.length < 16) fail(`ADMIN_SECRET is ${secret.length} chars; minimum is 16`)
-else if (secret === 'study-admin') fail('ADMIN_SECRET is the old default value')
-else pass('ADMIN_SECRET set and of adequate length')
+else {
+  const weak = weakSecretReason(secret)
+  if (weak) fail(`ADMIN_SECRET is weak: it ${weak}. Generate one with: openssl rand -base64 32`)
+  else pass('ADMIN_SECRET set and sufficiently strong')
+}
 
 if (process.env.STUDY_ALLOWED_ORIGINS) pass(`CORS allow-list: ${process.env.STUDY_ALLOWED_ORIGINS}`)
 else warn('STUDY_ALLOWED_ORIGINS unset — same-origin only (correct for a single-domain deployment)')
