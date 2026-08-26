@@ -147,28 +147,29 @@ export function Debrief({ participantId, onComplete }) {
           <h2>Your data</h2>
           <p>
             Your responses are stored under a study code, not your name. They are kept
-            {' '}{c.dataStorageLocation || '[storage location]'} for
-            {' '}{c.dataRetentionPeriod || '[retention period]'}, and reported only in
+            {c.dataStorageLocation ? ` ${c.dataStorageLocation}` : ''} for
+            {' '}{c.dataRetentionPeriod || 'the duration of research analysis'}, and reported only in
             aggregate — no individual participant is identifiable in anything we publish.
           </p>
           <p>
-            You may withdraw your data within {c.withdrawalWindow || '[withdrawal window]'},
+            You may withdraw your data{c.withdrawalWindow ? ` within ${c.withdrawalWindow}` : ''},
             with no reason needed and no effect on your compensation. Email
-            {' '}<strong>{c.contactEmail || '[contact email]'}</strong> quoting the session code
+            {' '}<strong>{c.contactEmail || 'pranav18june@gmail.com'}</strong> quoting the session code
             below and we will delete everything associated with it.
           </p>
 
           <h2>Questions or concerns</h2>
           <p>
-            {c.principalInvestigator || '[principal investigator]'}
-            {c.institution ? `, ${c.institution}` : ''} — {c.contactEmail || '[contact email]'}
+            {c.principalInvestigator || 'Indo-Swiss Grant on AI for Public Good Team'}
+            {c.institution ? `, ${c.institution}` : ''} — {c.contactEmail || 'pranav18june@gmail.com'}
           </p>
-          <p>
-            This study was approved by {c.ethicsCommittee || '[ethics committee]'}
-            {c.ethicsApprovalRef ? ` (reference ${c.ethicsApprovalRef})` : ''}. If you have a
-            concern you would rather raise with someone independent of the research team,
-            contact them at {c.ethicsContactEmail || '[ethics contact]'}.
-          </p>
+          {c.ethicsCommittee ? (
+            <p>
+              This study was approved by {c.ethicsCommittee}
+              {c.ethicsApprovalRef ? ` (reference ${c.ethicsApprovalRef})` : ''}.
+              {c.ethicsContactEmail ? ` Contact: ${c.ethicsContactEmail}.` : ''}
+            </p>
+          ) : null}
           <p>
             Please do not describe the task to anyone who may take part later — knowing in
             advance that some recommendations are wrong would change how they respond.

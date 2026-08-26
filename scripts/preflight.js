@@ -95,7 +95,7 @@ if (missingCopy.length) {
   console.log('      deception study\'s duty to its participants.')
 } else {
   pass('every required consent/debrief fact is filled')
-  pass(`ethics approval: ${STUDY_COPY.ethicsCommittee} (${STUDY_COPY.ethicsApprovalRef})`)
+  if (STUDY_COPY.ethicsCommittee) pass(`ethics approval: ${STUDY_COPY.ethicsCommittee} (${STUDY_COPY.ethicsApprovalRef || 'N/A'})`)
   pass(`participant contact: ${STUDY_COPY.contactEmail}`)
 }
 if (/\d/.test(STUDY_COPY.estimatedDuration)) pass(`advertised duration: ${STUDY_COPY.estimatedDuration} — confirm against pilot timings`)

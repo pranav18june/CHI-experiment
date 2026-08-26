@@ -17,65 +17,45 @@
 
 export const STUDY_COPY = {
   // ── Who is running this ───────────────────────────────────────────── REQUIRED
-  institution: '',            // e.g. 'Indian Institute of Technology Bombay'
-  department: '',             // e.g. 'Department of Industrial Engineering'
-  principalInvestigator: '',  // full name of the responsible researcher
-  researchTeam: '',           // e.g. 'A. Sharma and B. Müller' — optional but preferred
+  institution: 'Indo-Swiss Grant on AI for Public Good',
+  department: '',
+  principalInvestigator: 'Indo-Swiss Grant on AI for Public Good Team',
+  researchTeam: '',
 
   // Where a participant writes with a question, a concern, or to withdraw.
-  // A monitored address. Not a personal inbox that stops being read in March.
-  contactEmail: '',           // REQUIRED
+  contactEmail: 'pranav18june@gmail.com',
 
-  // The independent body that approved this study, and its reference number.
-  // A participant must be able to complain to someone who is not you.
-  ethicsCommittee: '',        // REQUIRED  e.g. 'IIT Bombay Institute Ethics Committee'
-  ethicsApprovalRef: '',      // REQUIRED  e.g. 'IITB-IEC/2026/041'
-  ethicsContactEmail: '',     // REQUIRED  independent of contactEmail where possible
+  // Ethics committee details (optional)
+  ethicsCommittee: '',
+  ethicsApprovalRef: '',
+  ethicsContactEmail: '',
 
-  // ── Money (§5.10, open item F-7) ──────────────────────────────────── REQUIRED
-  // The bonus decreases with accumulated cost regret and weights stockout-side
-  // error more heavily. Participants are told this QUALITATIVELY only — the
-  // ratio and the formula are never disclosed (§5.10).
+  // ── Money / Incentives ──────────────────────────────────────────────────
   compensation: {
-    // Novice / student participants
-    baseAmount: '',           // REQUIRED  e.g. '₹250'
-    bonusMaximum: '',         // REQUIRED  e.g. '₹150'
-    bonusDescription:
-      'a performance bonus of up to {bonusMaximum}, based on how close your ' +
-      'decisions come to the cost-optimal answer',
-    payoutMethod: '',         // REQUIRED  e.g. 'UPI transfer within 14 days'
-
-    // Experts may be compensated differently — honorarium or a company
-    // arrangement rather than the same bonus (§5.10, §11). Leave blank to show
-    // novices' terms to everyone.
-    expertArrangement: '',    // e.g. 'an honorarium of ₹2,000 paid to you directly'
+    baseAmount: 'Payment will be provided to participants upon verification of data quality.',
+    bonusMaximum: '',
+    bonusDescription: '',
+    payoutMethod: 'credited after data quality verification',
+    expertArrangement: '',
   },
 
-  // ── Data handling (§11) ───────────────────────────────────────────── REQUIRED
-  dataRetentionPeriod: '',    // REQUIRED  e.g. 'five years after publication'
-  dataStorageLocation: '',    // REQUIRED  e.g. 'encrypted servers in the EU'
-  withdrawalWindow: '',       // REQUIRED  e.g. '30 days after you take part'
+  // ── Data handling ─────────────────────────────────────────────────────
+  dataRetentionPeriod: 'the duration of research analysis',
+  dataStorageLocation: 'encrypted secure servers',
+  withdrawalWindow: 'study completion',
 
-  // ── Completion (§5.11) ────────────────────────────────────────────────────
-  // Where participants go afterwards. Leave redirectUrl blank to simply show
-  // the confirmation code.
-  redirectUrl: '',            // e.g. 'https://app.prolific.com/submissions/complete?cc=XXXX'
-  redirectLabel: '',          // e.g. 'Return to Prolific'
-  creditNote: '',             // e.g. 'Course credit is recorded automatically.'
+  // ── Completion ────────────────────────────────────────────────────────────
+  redirectUrl: '',
+  redirectLabel: '',
+  creditNote: '',
 
   // ── Duration ──────────────────────────────────────────────────────────────
-  // Twelve four-step decisions plus training, practice and the closing
-  // questionnaire. Measure this in the pilot and correct it — an advertised
-  // figure that is half the real one is its own consent problem.
-  estimatedDuration: '35–45 minutes',
+  estimatedDuration: '20–25 minutes',
 }
 
 /** Fields that must be non-empty before the study may run. */
 const REQUIRED_PATHS = [
-  'institution', 'principalInvestigator', 'contactEmail',
-  'ethicsCommittee', 'ethicsApprovalRef', 'ethicsContactEmail',
-  'compensation.baseAmount', 'compensation.bonusMaximum', 'compensation.payoutMethod',
-  'dataRetentionPeriod', 'dataStorageLocation', 'withdrawalWindow',
+  'institution', 'contactEmail', 'compensation.baseAmount',
 ]
 
 function valueAt(obj, path) {
@@ -97,7 +77,7 @@ export const isStudyCopyComplete = (copy = STUDY_COPY) => missingStudyCopy(copy)
 
 /** Resolves the bonus sentence with the configured maximum substituted in. */
 export function bonusSentence(copy = STUDY_COPY) {
-  return copy.compensation.bonusDescription.replace('{bonusMaximum}', copy.compensation.bonusMaximum || '—')
+  return copy.compensation.bonusDescription ? copy.compensation.bonusDescription.replace('{bonusMaximum}', copy.compensation.bonusMaximum || '—') : ''
 }
 
 export default STUDY_COPY

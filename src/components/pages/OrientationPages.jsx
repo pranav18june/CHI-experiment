@@ -47,10 +47,8 @@ export function WelcomeScreen({ participantId, onStart }) {
             </li>
             <li>
               <strong>Payment:</strong>{' '}
-              {STUDY_COPY.compensation.baseAmount
-                ? <>{STUDY_COPY.compensation.baseAmount} for completing the study, plus {bonusSentence()}.</>
-                : <>[payment terms — see src/config/studyCopy.js]</>}
-              {STUDY_COPY.compensation.payoutMethod ? ` Paid by ${STUDY_COPY.compensation.payoutMethod}.` : ''}
+              {STUDY_COPY.compensation.baseAmount || 'Payment will be provided to participants upon verification of data quality.'}
+              {STUDY_COPY.compensation.payoutMethod ? ` ${STUDY_COPY.compensation.payoutMethod}.` : ''}
             </li>
           </ul>
 
@@ -86,25 +84,27 @@ export function WelcomeScreen({ participantId, onStart }) {
           <p>
             We do not ask for your name, email address, or any other direct identifier.
             Responses are stored under a random study code
-            {STUDY_COPY.dataStorageLocation ? ` ${STUDY_COPY.dataStorageLocation}` : ''} and kept
-            {' '}{STUDY_COPY.dataRetentionPeriod || '[retention period]'}. Results are published
+            {STUDY_COPY.dataStorageLocation ? ` (${STUDY_COPY.dataStorageLocation})` : ''} and kept
+            {' '}{STUDY_COPY.dataRetentionPeriod || 'for research analysis'}. Results are published
             only in aggregate; no individual is identifiable.
           </p>
           <p>
             After finishing you will be given a session code. You can have your data deleted
-            within {STUDY_COPY.withdrawalWindow || '[withdrawal window]'} by emailing that code
-            to <strong>{STUDY_COPY.contactEmail || '[contact email]'}</strong>. Your payment is
-            unaffected.
+            {STUDY_COPY.withdrawalWindow ? ` within ${STUDY_COPY.withdrawalWindow}` : ''} by emailing that code
+            to <strong>{STUDY_COPY.contactEmail || 'pranav18june@gmail.com'}</strong>.
           </p>
           <p>
-            <strong>{STUDY_COPY.principalInvestigator || '[principal investigator]'}</strong>
+            <strong>{STUDY_COPY.principalInvestigator || 'Indo-Swiss Grant on AI for Public Good Team'}</strong>
             {STUDY_COPY.institution ? `, ${STUDY_COPY.institution}` : ''}
-            {' '}&middot; {STUDY_COPY.contactEmail || '[contact email]'}
-            <br />
-            Approved by {STUDY_COPY.ethicsCommittee || '[ethics committee]'}
-            {STUDY_COPY.ethicsApprovalRef ? ` (${STUDY_COPY.ethicsApprovalRef})` : ''}. To raise a
-            concern with someone independent of the research team, contact
-            {' '}{STUDY_COPY.ethicsContactEmail || '[ethics contact]'}.
+            {' '}&middot; {STUDY_COPY.contactEmail || 'pranav18june@gmail.com'}
+            {STUDY_COPY.ethicsCommittee ? (
+              <>
+                <br />
+                Approved by {STUDY_COPY.ethicsCommittee}
+                {STUDY_COPY.ethicsApprovalRef ? ` (${STUDY_COPY.ethicsApprovalRef})` : ''}.
+                {STUDY_COPY.ethicsContactEmail ? ` Contact: ${STUDY_COPY.ethicsContactEmail}.` : ''}
+              </>
+            ) : null}
           </p>
           <p className="field-note">
             There is one more thing we will tell you about the study once you have finished.
